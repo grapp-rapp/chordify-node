@@ -1,9 +1,12 @@
 /**
- * Plays back the generated MIDI file with lightweight synthesized voices:
+ * Plays back the generated MIDI file with recorded instrument samples (MusyngKite General MIDI
+ * soundfont: acoustic grand piano / steel-string guitar, one recording per note, loaded on
+ * demand for just the pitches the piece uses). If a sample can't be fetched (offline), that
+ * pitch falls back to a synthesized voice:
  *  - piano: additive synthesis with slightly inharmonic, individually decaying partials
  *  - guitar: Karplus–Strong plucked string
- * Voices are rendered once per pitch into AudioBuffers and scheduled with a
- * look-ahead scheduler, so long pieces don't create thousands of nodes up front.
+ * Notes are scheduled with a look-ahead scheduler, so long pieces don't create thousands of
+ * nodes up front.
  */
 import { Midi } from "@tonejs/midi";
 import type { Instrument } from "./types";
@@ -16,6 +19,34 @@ interface PlayNote {
 }
 
 const LOOKAHEAD = 0.25; // seconds
+const SAMPLE_BASE = "https://gleitz.github.io/midi-js-soundfonts/MusyngKite/";
+const SAMPLE_SET: Record<Instrument, string> = { piano: "acoustic_grand_piano", guitar: "acoustic_guitar_steel" };
+const FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+const SAMPLE_TIMEOUT_MS = 8000;
+
+/** Recorded samples are shared by all players and survive re-arrangements. */
+const sampleCache = new Map<string, Promise<AudioBuffer | null>>();
+
+function fetchSample(ctx: BaseAudioContext, instrument: Instrument, midi: number): Promise<AudioBuffer | null> {
+  const key = `${instrument}:${midi}`;
+  let p = sampleCache.get(key);
+  if (!p) {
+    const name = `${FLAT_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
+    const url = `${SAMPLE_BASE}${SAMPLE_SET[instrument]}-mp3/${name}.mp3`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), SAMPLE_TIMEOUT_MS);
+    p = fetch(url, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+      .then((b) => ctx.decodeAudioData(b))
+      .catch(() => {
+        sampleCache.delete(key); // allow a retry later (e.g. back online)
+        return null;
+      })
+      .finally(() => clearTimeout(timer));
+    sampleCache.set(key, p);
+  }
+  return p;
+}
 const TICK_MS = 50;
 
 function renderPiano(ctx: BaseAudioContext, midi: number): AudioBuffer {
@@ -70,6 +101,7 @@ export class MidiPlayer {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private buffers = new Map<string, AudioBuffer>();
+  private samples = new Map<string, AudioBuffer>();
   private notes: PlayNote[] = [];
   private instrument: Instrument = "piano";
   private timer: number | null = null;
@@ -109,8 +141,23 @@ export class MidiPlayer {
     return this.ctx;
   }
 
+  /** Fetches the recorded samples for every pitch in the piece (in parallel). */
+  private async loadSamples() {
+    const ctx = this.ensureCtx();
+    const pitches = [...new Set(this.notes.map((n) => n.midi))];
+    const inst = this.instrument;
+    await Promise.all(
+      pitches.map(async (m) => {
+        const buf = await fetchSample(ctx, inst, m);
+        if (buf) this.samples.set(`${inst}:${m}`, buf);
+      }),
+    );
+  }
+
   private voice(midi: number): AudioBuffer {
     const key = `${this.instrument}:${midi}`;
+    const sample = this.samples.get(key);
+    if (sample) return sample;
     let b = this.buffers.get(key);
     if (!b) {
       const ctx = this.ensureCtx();
@@ -128,6 +175,7 @@ export class MidiPlayer {
   async play(from = this.pausedAt) {
     const ctx = this.ensureCtx();
     if (ctx.state === "suspended") await ctx.resume();
+    await this.loadSamples();
     this.stopVoices();
     if (from >= this.duration - 0.01) from = 0;
     this.startOffset = from;
@@ -189,7 +237,7 @@ export class MidiPlayer {
       const g = ctx.createGain();
       const level = 0.25 + 0.75 * n.velocity;
       const endAt = when + (n.duration - offsetInNote);
-      const release = this.instrument === "guitar" ? 0.12 : 0.18;
+      const release = this.instrument === "guitar" ? 0.2 : 0.3;
       g.gain.setValueAtTime(level, when);
       g.gain.setValueAtTime(level, endAt);
       g.gain.exponentialRampToValueAtTime(0.001, endAt + release);

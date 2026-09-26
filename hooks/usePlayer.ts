@@ -8,6 +8,7 @@ export function usePlayer(arr: Arrangement | null) {
   const playerRef = useRef<MidiPlayer | null>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
   const raf = useRef(0);
 
   const getPlayer = () => {
@@ -41,8 +42,13 @@ export function usePlayer(arr: Arrangement | null) {
   }, [playing]);
 
   const play = useCallback(async () => {
-    await getPlayer().play();
-    setPlaying(true);
+    setLoading(true); // first play fetches the instrument samples
+    try {
+      await getPlayer().play();
+      setPlaying(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const pause = useCallback(() => {
@@ -62,5 +68,5 @@ export function usePlayer(arr: Arrangement | null) {
     setTime(getPlayer().currentTime());
   }, []);
 
-  return { time, playing, play, pause, stop, seek, duration: arr?.duration ?? 0 };
+  return { time, playing, loading, play, pause, stop, seek, duration: arr?.duration ?? 0 };
 }

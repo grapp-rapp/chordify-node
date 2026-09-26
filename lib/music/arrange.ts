@@ -29,6 +29,7 @@ import {
   type Key,
 } from "./theory";
 import { MAX_SECONDS } from "../audio";
+import { buildTimeMap, type TimeMap } from "./beats";
 import { detectGroove, extractMelody, guitarStrums, pianoLeftHand, simplifyChords } from "./easy";
 
 export const STEPS_PER_BAR = 16; // 4/4 in 16th notes
@@ -38,44 +39,6 @@ export const GUITAR_STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 export const MAX_FRET = 19;
 const MAX_HAND_SPAN = 4; // frets between lowest and highest fretted note in one grip
 const SPLIT_POINT = 60; // middle C: >= goes to treble clef
-
-/**
- * Beat-grid origin (seconds): the phase that best aligns note onsets to the 8th-note grid,
- * moved to the last beat at or before the first note so leading silence is dropped.
- */
-function gridOrigin(analysis: AnalysisResult, stepSec: number): number {
-  const notes = analysis.notes;
-  if (!notes.length) return 0;
-  const beatSec = stepSec * 4;
-  const eighth = stepSec * 2;
-  // Onsets of simultaneous notes count once, so big chords don't outweigh the rhythm.
-  const onsets: { t: number; w: number }[] = [];
-  for (const n of notes) {
-    const w = Math.min(1, (n.end - n.start) / beatSec + 0.3);
-    const last = onsets[onsets.length - 1];
-    if (last && n.start - last.t < 0.03) last.w = Math.max(last.w, w);
-    else onsets.push({ t: n.start, w });
-  }
-  let best = 0;
-  let bestErr = Infinity;
-  for (let phi = 0; phi < beatSec; phi += 0.005) {
-    let err = 0;
-    for (const o of onsets) {
-      const r = (o.t - phi) / eighth;
-      const q = (o.t - phi) / beatSec;
-      // 8th-grid fit, plus a quarter-grid term: phi and phi + 1/8 fit an 8th grid equally
-      // well, but most notes land on beats. Longer notes are more reliable anchors.
-      err += (Math.abs(r - Math.round(r)) + 0.5 * Math.abs(q - Math.round(q))) * o.w;
-    }
-    if (err < bestErr - 1e-9) {
-      bestErr = err;
-      best = phi;
-    }
-  }
-  const first = notes.reduce((m, n) => Math.min(m, n.start), Infinity);
-  const k = Math.floor((first - best + stepSec / 2) / beatSec);
-  return best + k * beatSec;
-}
 
 function toQNote(midi: number, startStep: number, endStep: number, stepSec: number, velocity: number, confidence: number): QNote {
   return {
@@ -90,13 +53,12 @@ function toQNote(midi: number, startStep: number, endStep: number, stepSec: numb
   };
 }
 
-function quantize(analysis: AnalysisResult, stepSec: number, origin: number): QNote[] {
-  const sorted = analysis.notes
-    .map((n) => ({ ...n, start: n.start - origin, end: n.end - origin }))
-    .sort((a, b) => a.start - b.start || a.midi - b.midi);
+function quantize(analysis: AnalysisResult, stepSec: number, map: TimeMap): QNote[] {
+  const sorted = [...analysis.notes].sort((a, b) => a.start - b.start || a.midi - b.midi);
+  // Snap to the tracked beat grid (follows tempo drift), then lay out at the steady tempo.
   const snap = (n: { start: number; end: number }) => {
-    const startStep = Math.max(0, Math.round(n.start / stepSec));
-    return [startStep, Math.max(startStep + 1, Math.round(n.end / stepSec))] as const;
+    const startStep = Math.max(0, Math.round(map.toStep(n.start)));
+    return [startStep, Math.max(startStep + 1, Math.round(map.toStep(n.end)))] as const;
   };
 
   if (analysis.mode === "melody") {
@@ -186,7 +148,7 @@ function detectChords(
   stepSec: number,
   totalSteps: number,
   key: Key,
-  origin: number,
+  map: TimeMap,
 ): ChordEvent[] {
   const poly = analysis.mode === "poly";
   const prior = chordPrior(key);
@@ -201,8 +163,8 @@ function detectChords(
     const s0 = w * CHORD_WINDOW;
     const s1 = s0 + CHORD_WINDOW;
     // Chroma frames live on the original audio timeline.
-    const t0 = s0 * stepSec + origin;
-    const t1 = s1 * stepSec + origin;
+    const t0 = map.toTime(s0);
+    const t1 = map.toTime(s1);
     const profile = new Array(12).fill(0);
     let energy = 0;
     let frames = 0;
@@ -225,7 +187,8 @@ function detectChords(
         if (n.startStep > s) break;
         if (n.endStep <= s) continue;
         noteProfile[n.midi % 12] += 1;
-        lowest = Math.min(lowest, n.midi);
+        if (n.midi < SPLIT_POINT) lowest = Math.min(lowest, n.midi); // bass = below middle C only
+
       }
       if (lowest < Infinity) bassVotes[lowest % 12]++;
     }
@@ -679,8 +642,8 @@ export function arrange(
 ): Arrangement {
   const tempo = Math.min(240, Math.max(40, Math.round(tempoOverride ?? analysis.tempo)));
   const stepSec = 60 / tempo / 4;
-  const origin = gridOrigin(analysis, stepSec);
-  const notes = quantize(analysis, stepSec, origin);
+  const map = buildTimeMap(analysis, tempo);
+  const notes = quantize(analysis, stepSec, map);
   const lastStep = notes.reduce((m, n) => Math.max(m, n.endStep), 0);
   const totalSteps = Math.max(STEPS_PER_BAR, Math.ceil(lastStep / STEPS_PER_BAR) * STEPS_PER_BAR);
 
@@ -694,8 +657,8 @@ export function arrange(
   for (let i = 0; i < 12; i++) profile[i] = profile[i] / maxNote + (0.5 * chromaSum[i]) / maxChroma;
   const key = detectKey(profile);
   const notation = analysis.mode === "poly" ? sustainChords(notes, stepSec) : notes;
-  const detected = detectChords(analysis, notation, stepSec, totalSteps, key, origin);
-  const chords = style === "easy" ? simplifyChords(detected, stepSec) : detected;
+  const detected = detectChords(analysis, notation, stepSec, totalSteps, key, map);
+  const chords = style === "easy" ? simplifyChords(detected, stepSec, key) : detected;
 
   let treble = notes.filter((n) => n.midi >= SPLIT_POINT);
   let bass = notes.filter((n) => n.midi < SPLIT_POINT);
@@ -710,7 +673,7 @@ export function arrange(
   } else {
     // Whole song (any instruments, drums included) → one playable part:
     // the melody plus chords played on the song's own groove.
-    const groove = detectGroove(analysis, origin, stepSec, totalSteps);
+    const groove = detectGroove(analysis, map, totalSteps);
     if (instrument === "piano") {
       treble = notationTreble = extractMelody(notes, stepSec);
       bass = notationBass = pianoLeftHand(chords, groove, totalSteps, stepSec);

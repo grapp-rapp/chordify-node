@@ -7,7 +7,8 @@
  *  - guitar: the chord shapes are strummed on the groove (down on beats, up in between).
  */
 import type { AnalysisResult, ChordEvent, GuitarNote, QNote } from "../types";
-import { chordName, chordTones, guitarChordShape, midiToName, type ChordQuality } from "./theory";
+import type { TimeMap } from "./beats";
+import { chordName, chordTones, guitarChordShape, midiToName, type ChordQuality, type Key } from "./theory";
 
 const BAR = 16;
 const TUNING = [40, 45, 50, 55, 59, 64];
@@ -24,7 +25,7 @@ export interface Groove {
  * are there. The strongest positions (at most four per bar, always including the downbeat)
  * become the accompaniment pattern; positions dominated by low-frequency attacks are bass hits.
  */
-export function detectGroove(analysis: AnalysisResult, origin: number, stepSec: number, totalSteps: number): Groove {
+export function detectGroove(analysis: AnalysisResult, map: TimeMap, totalSteps: number): Groove {
   const { full, low, hop } = analysis.groove;
   const prof = new Float64Array(BAR);
   const lowProf = new Float64Array(BAR);
@@ -35,7 +36,7 @@ export function detectGroove(analysis: AnalysisResult, origin: number, stepSec: 
     return m;
   };
   for (let s = 0; s < totalSteps; s++) {
-    const t = s * stepSec + origin;
+    const t = map.toTime(s);
     prof[s % BAR] += peak(full, t);
     lowProf[s % BAR] += peak(low, t);
   }
@@ -117,8 +118,21 @@ export function extractMelody(notes: QNote[], stepSec: number): QNote[] {
   });
 }
 
-/** Beginner-friendly chords: 7ths and suspensions become plain major/minor triads. */
-export function simplifyChords(chords: ChordEvent[], stepSec: number): ChordEvent[] {
+/** Quality of the triad built on `root` within the key's scale (null if root isn't in the scale). */
+function diatonicTriad(root: number, key: Key): ChordQuality | null {
+  const deg = (root - key.tonic + 12) % 12;
+  const table: Record<number, ChordQuality> =
+    key.mode === "major"
+      ? { 0: "maj", 2: "min", 4: "min", 5: "maj", 7: "maj", 9: "min", 11: "dim" }
+      : { 0: "min", 2: "dim", 3: "maj", 5: "min", 7: "min", 8: "maj", 10: "maj" };
+  return table[deg] ?? null;
+}
+
+/**
+ * Beginner-friendly chords: 7ths become plain triads, and suspended chords (which have no
+ * 3rd, e.g. a melody's D+E read as Dsus2) take the 3rd the key implies — Dm in D minor.
+ */
+export function simplifyChords(chords: ChordEvent[], stepSec: number, key: Key): ChordEvent[] {
   const simple: Record<ChordQuality, ChordQuality> = {
     maj: "maj",
     min: "min",
@@ -131,7 +145,10 @@ export function simplifyChords(chords: ChordEvent[], stepSec: number): ChordEven
   };
   const out: ChordEvent[] = [];
   for (const c of chords) {
-    const quality = simple[c.quality];
+    const quality =
+      c.quality === "sus2" || c.quality === "sus4"
+        ? (diatonicTriad(c.root, key) === "min" ? "min" : "maj")
+        : simple[c.quality];
     const last = out[out.length - 1];
     if (last && last.root === c.root && last.quality === quality && last.endStep === c.startStep) {
       last.endStep = c.endStep;

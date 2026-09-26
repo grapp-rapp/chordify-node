@@ -93,10 +93,18 @@ export function ResultsView({
           <button
             type="button"
             onClick={player.playing ? player.pause : player.play}
+            disabled={player.loading}
             className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white shadow-lg shadow-violet-900/40 transition hover:scale-105"
-            aria-label={player.playing ? "Pause" : "Play"}
+            aria-label={player.loading ? "Loading instrument" : player.playing ? "Pause" : "Play"}
+            title={player.loading ? "Loading instrument sounds…" : undefined}
           >
-            {player.playing ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
+            {player.loading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : player.playing ? (
+              <Pause className="h-5 w-5" />
+            ) : (
+              <Play className="ml-0.5 h-5 w-5" />
+            )}
           </button>
           <button type="button" onClick={player.stop} className="rounded-full p-2.5 text-slate-300 hover:bg-white/10" aria-label="Stop">
             <Square className="h-4 w-4" />
