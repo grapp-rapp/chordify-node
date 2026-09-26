@@ -10,7 +10,7 @@ import { ResultsView } from "@/components/ResultsView";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { decodeToMono, runAnalysis, UserFacingError, validateFile } from "@/lib/audio";
 import { arrange } from "@/lib/music/arrange";
-import type { AnalysisResult, DetectMode, Instrument } from "@/lib/types";
+import type { AnalysisResult, ArrangeStyle, DetectMode, Instrument } from "@/lib/types";
 
 type Phase = "input" | "working" | "done";
 
@@ -24,17 +24,18 @@ export default function Home() {
   const [source, setSource] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [tempo, setTempo] = useState<number | undefined>(undefined);
+  const [style, setStyle] = useState<ArrangeStyle>("easy");
   const abortRef = useRef<AbortController | null>(null);
 
   const arrangement = useMemo(() => {
     if (!analysis) return null;
     try {
-      return arrange(analysis, instrument, tempo);
+      return arrange(analysis, instrument, tempo, style);
     } catch (e) {
       console.error(e);
       return null;
     }
-  }, [analysis, instrument, tempo]);
+  }, [analysis, instrument, tempo, style]);
 
   const transcribe = async (blob: Blob, label: string, detect: DetectMode = mode) => {
     lastBlob.current = blob;
@@ -161,7 +162,7 @@ export default function Home() {
               {[
                 ["Chords & several notes", "A neural note detector (Basic Pitch) finds every note sounding at once, from A0 to C8."],
                 ["Rhythm & harmony", "Onset detection, tempo estimation, 16th-note quantization and chord names from triads to 7ths."],
-                ["Best results", "Solo piano, guitar or voice. Full band mixes work, but drums and effects add stray notes."],
+                ["Whole songs", "Songs with drums, band or vocals become one easy piano or guitar part that follows the song's beat."],
               ].map(([t, d]) => (
                 <div key={t} className="card p-4">
                   <p className="mb-1 flex items-center gap-2 font-semibold text-slate-200">
@@ -189,6 +190,7 @@ export default function Home() {
             onMode={(m) => lastBlob.current && void transcribe(lastBlob.current, source, m)}
             onInstrument={setInstrument}
             onTempo={setTempo}
+            onStyle={setStyle}
             onReset={() => {
               setPhase("input");
               setAnalysis(null);

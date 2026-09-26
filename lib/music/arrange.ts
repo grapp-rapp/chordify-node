@@ -8,6 +8,7 @@
 import { Midi } from "@tonejs/midi";
 import type {
   AnalysisResult,
+  ArrangeStyle,
   Arrangement,
   ChordEvent,
   GuitarNote,
@@ -28,6 +29,7 @@ import {
   type Key,
 } from "./theory";
 import { MAX_SECONDS } from "../audio";
+import { detectGroove, extractMelody, guitarStrums, pianoLeftHand, simplifyChords } from "./easy";
 
 export const STEPS_PER_BAR = 16; // 4/4 in 16th notes
 const CHORD_WINDOW = 8; // detect chords every half bar
@@ -532,22 +534,29 @@ export function buildTabLines(guitar: GuitarNote[], chords: ChordEvent[], totalS
   const bars = Math.ceil(totalSteps / STEPS_PER_BAR);
   const cellAt = new Map<string, string>(); // "step:string" -> fret
   guitar.forEach((g) => cellAt.set(`${g.startStep}:${g.pos.string}`, String(g.pos.fret)));
+  const strumAt = new Map<number, string>();
+  guitar.forEach((g) => g.strum && strumAt.set(g.startStep, g.strum === "down" ? "D" : "U"));
   const chordAt = new Map<number, string>();
   chords.forEach((c) => chordAt.set(c.startStep, c.symbol));
   const out: string[] = [];
   for (let b0 = 0; b0 < bars; b0 += barsPerLine) {
     const bEnd = Math.min(bars, b0 + barsPerLine);
     let chordLine = "  ";
+    let strumLine = "  ";
     const rows = GUITAR_STRING_NAMES.map((n) => `${n}|`);
     for (let b = b0; b < bEnd; b++) {
       for (let s = b * STEPS_PER_BAR; s < (b + 1) * STEPS_PER_BAR; s++) {
         const c = chordAt.get(s);
         if (c) chordLine = chordLine.padEnd(rows[0].length) + c + " ";
         for (let str = 0; str < 6; str++) rows[str] += (cellAt.get(`${s}:${str}`) ?? "").padEnd(CELL, "-");
+        strumLine += (strumAt.get(s) ?? "").padEnd(CELL, " ");
       }
       for (let str = 0; str < 6; str++) rows[str] += "|";
+      strumLine += " ";
     }
-    out.push(chordLine.trimEnd(), ...rows.reverse(), "");
+    out.push(chordLine.trimEnd(), ...rows.reverse());
+    if (strumAt.size) out.push(strumLine.trimEnd());
+    out.push("");
   }
   return out;
 }
@@ -596,7 +605,13 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
   const header = [
     "ChordifyNode Transcription",
     "==========================",
-    `Instrument: ${a.instrument === "piano" ? "Piano" : "Guitar (standard tuning EADGBE)"}`,
+    `Instrument: ${a.instrument === "piano" ? "Piano" : "Guitar (standard tuning EADGBE)"}   Style: ${
+      a.style === "full"
+        ? "full transcription"
+        : a.instrument === "piano"
+          ? "easy arrangement (melody + chords on the song's rhythm)"
+          : "easy arrangement (strummed chords on the song's rhythm)"
+    }`,
     `Tempo: ${a.tempo} BPM   Time: 4/4   Key (estimated): ${a.key}`,
     `Notes: ${a.notes.length}   Length: ${a.duration.toFixed(1)}s`,
     "",
@@ -613,7 +628,8 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
     "",
   ];
   if (a.instrument === "guitar") {
-    return [...header, "Tablature (each dash = 1/16 note):", "", ...buildTabLines(a.guitar, a.chords, a.totalSteps)].join("\n");
+    const legend = a.guitar.some((g) => g.strum) ? " D = strum down, U = strum up" : "";
+    return [...header, `Tablature (each dash = 1/16 note):${legend}`, "", ...buildTabLines(a.guitar, a.chords, a.totalSteps)].join("\n");
   }
   return [
     ...header,
@@ -646,13 +662,21 @@ function buildMidi(a: Omit<Arrangement, "text" | "midi">): Uint8Array {
     t.channel = i;
     t.instrument.number = a.instrument === "piano" ? 0 : 25; // Acoustic Grand / Acoustic Guitar (steel)
     for (const n of notes) {
-      t.addNote({ midi: n.midi, time: n.start, duration: n.end - n.start, velocity: n.velocity / 127 });
+      // Strummed strings sound a few ms apart: low→high on a downstroke, high→low on an upstroke.
+      const g = n as GuitarNote;
+      const spread = g.strum ? 0.012 * (g.strum === "down" ? g.pos.string : 5 - g.pos.string) : 0;
+      t.addNote({ midi: n.midi, time: n.start + spread, duration: Math.max(0.05, n.end - n.start - spread), velocity: n.velocity / 127 });
     }
   });
   return midi.toArray();
 }
 
-export function arrange(analysis: AnalysisResult, instrument: Instrument, tempoOverride?: number): Arrangement {
+export function arrange(
+  analysis: AnalysisResult,
+  instrument: Instrument,
+  tempoOverride?: number,
+  style: ArrangeStyle = "easy",
+): Arrangement {
   const tempo = Math.min(240, Math.max(40, Math.round(tempoOverride ?? analysis.tempo)));
   const stepSec = 60 / tempo / 4;
   const origin = gridOrigin(analysis, stepSec);
@@ -670,19 +694,38 @@ export function arrange(analysis: AnalysisResult, instrument: Instrument, tempoO
   for (let i = 0; i < 12; i++) profile[i] = profile[i] / maxNote + (0.5 * chromaSum[i]) / maxChroma;
   const key = detectKey(profile);
   const notation = analysis.mode === "poly" ? sustainChords(notes, stepSec) : notes;
-  const chords = detectChords(analysis, notation, stepSec, totalSteps, key, origin);
+  const detected = detectChords(analysis, notation, stepSec, totalSteps, key, origin);
+  const chords = style === "easy" ? simplifyChords(detected, stepSec) : detected;
 
-  const treble = notes.filter((n) => n.midi >= SPLIT_POINT);
-  const bass = notes.filter((n) => n.midi < SPLIT_POINT);
-  const notationTreble = notation.filter((n) => n.midi >= SPLIT_POINT);
-  const notationBass = notation.filter((n) => n.midi < SPLIT_POINT);
-  const { guitar, dropped } = instrument === "guitar" ? assignGuitar(notes) : { guitar: [], dropped: 0 };
+  let treble = notes.filter((n) => n.midi >= SPLIT_POINT);
+  let bass = notes.filter((n) => n.midi < SPLIT_POINT);
+  let notationTreble = notation.filter((n) => n.midi >= SPLIT_POINT);
+  let notationBass = notation.filter((n) => n.midi < SPLIT_POINT);
+  let outNotes = notes;
+  let guitar: GuitarNote[] = [];
+  let dropped = 0;
+
+  if (style === "full") {
+    if (instrument === "guitar") ({ guitar, dropped } = assignGuitar(notes));
+  } else {
+    // Whole song (any instruments, drums included) → one playable part:
+    // the melody plus chords played on the song's own groove.
+    const groove = detectGroove(analysis, origin, stepSec, totalSteps);
+    if (instrument === "piano") {
+      treble = notationTreble = extractMelody(notes, stepSec);
+      bass = notationBass = pianoLeftHand(chords, groove, totalSteps, stepSec);
+      outNotes = [...treble, ...bass].sort((a, b) => a.startStep - b.startStep || a.midi - b.midi);
+    } else {
+      guitar = guitarStrums(chords, groove, totalSteps, stepSec);
+      outNotes = guitar;
+    }
+  }
 
   const warnings = [...analysis.warnings];
   if (analysis.originalDuration > MAX_SECONDS + 0.5) {
     warnings.unshift(`Only the first ${MAX_SECONDS / 60} minutes of the ${Math.round(analysis.originalDuration)}s file were transcribed.`);
   }
-  if (instrument === "guitar") {
+  if (instrument === "guitar" && style === "full") {
     const moved = guitar.filter((g) => g.pos.transposed !== 0).length;
     if (moved) warnings.push(`${moved} note(s) were outside the guitar's range and were shifted by an octave.`);
     if (dropped) warnings.push(`${dropped} note(s) couldn't be fingered on guitar (too many or too wide a stretch) and were left out of the tab.`);
@@ -690,13 +733,14 @@ export function arrange(analysis: AnalysisResult, instrument: Instrument, tempoO
 
   const base = {
     instrument,
+    style,
     tempo,
     stepSec,
     stepsPerBar: STEPS_PER_BAR,
     totalSteps,
     duration: totalSteps * stepSec,
     key: key.name,
-    notes,
+    notes: outNotes,
     chords,
     treble,
     bass,

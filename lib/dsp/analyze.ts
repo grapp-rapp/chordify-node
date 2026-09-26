@@ -161,28 +161,47 @@ function stft(
   return nFrames;
 }
 
-/** Log spectral flux on the same hop grid as the pitch track. Returns normalised envelope. */
-export function onsetEnvelope(x: Float32Array, nFrames: number): Float32Array {
+function normalise95(env: Float32Array) {
+  const sorted = Float32Array.from(env).sort();
+  const scale = sorted[Math.floor(sorted.length * 0.95)] || 1;
+  for (let i = 0; i < env.length; i++) env[i] /= scale;
+}
+
+/**
+ * Log spectral flux on the same hop grid as the pitch track, normalised. `full` sees every
+ * attack (snare, hats, notes); `low` only the band below 150 Hz (kick drum, bass).
+ */
+export function rhythmEnvelopes(x: Float32Array, nFrames: number): { full: Float32Array; low: Float32Array } {
   const n = 1024;
-  const env = new Float32Array(nFrames);
+  const lowBins = Math.floor((150 * n) / ANALYSIS_SR);
+  const full = new Float32Array(nFrames);
+  const low = new Float32Array(nFrames);
   let prev: Float64Array | null = null;
   stft(x, n, HOP, (t, mag) => {
     const cur = new Float64Array(mag.length);
     for (let k = 0; k < mag.length; k++) cur[k] = Math.log1p(100 * mag[k]);
     if (prev && t < nFrames) {
       let s = 0;
+      let sLow = 0;
       for (let k = 1; k < cur.length; k++) {
         const diff = cur[k] - prev[k];
-        if (diff > 0) s += diff;
+        if (diff > 0) {
+          s += diff;
+          if (k <= lowBins) sLow += diff;
+        }
       }
-      env[t] = s;
+      full[t] = s;
+      low[t] = sLow;
     }
     prev = cur;
   });
-  const sorted = Float32Array.from(env).sort();
-  const scale = sorted[Math.floor(sorted.length * 0.95)] || 1;
-  for (let i = 0; i < env.length; i++) env[i] /= scale;
-  return env;
+  normalise95(full);
+  normalise95(low);
+  return { full, low };
+}
+
+export function onsetEnvelope(x: Float32Array, nFrames: number): Float32Array {
+  return rhythmEnvelopes(x, nFrames).full;
 }
 
 function pickOnsets(env: Float32Array): Uint8Array {
@@ -506,7 +525,8 @@ export function analyze(
   }
 
   onProgress("Detecting onsets", 0.75);
-  const env = onsetEnvelope(x, track.nFrames);
+  const rhythm = rhythmEnvelopes(x, track.nFrames);
+  const env = rhythm.full;
   const onsets = pickOnsets(env);
 
   // Fill 1–2 frame dropouts inside sustained notes (not across new attacks), then median-smooth.
@@ -548,6 +568,7 @@ export function analyze(
   return {
     mode: "melody",
     sampleRate: sr,
+    groove: { full: rhythm.full, low: rhythm.low, hop: HOP / sr },
     duration,
     originalDuration,
     tempo,

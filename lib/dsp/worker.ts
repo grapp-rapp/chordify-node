@@ -47,6 +47,8 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     ctx.postMessage({ type: "done", result } satisfies WorkerResponse, [
       result.chroma.buffer,
       result.chromaEnergy.buffer,
+      result.groove.full.buffer,
+      result.groove.low.buffer,
     ]);
   } catch (err) {
     ctx.postMessage({

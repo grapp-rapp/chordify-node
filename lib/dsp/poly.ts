@@ -6,7 +6,7 @@
 import type * as tfType from "@tensorflow/tfjs";
 import { addPitchBendsToNoteEvents, BasicPitch, noteFramesToTime, outputToNotesPoly } from "@spotify/basic-pitch";
 import type { AnalysisResult, RawNote } from "../types";
-import { estimateTempo, HOP, onsetEnvelope, prepareSignal, type Progress } from "./analyze";
+import { estimateTempo, HOP, prepareSignal, rhythmEnvelopes, type Progress } from "./analyze";
 
 // Basic Pitch timing constants (mirrors its toMidi.ts) — its frames drift slightly per 2 s window.
 const BP_SR = 22050;
@@ -23,8 +23,8 @@ const MAX_POLYPHONY = 8;
 
 /**
  * Drops the model's typical false positives:
- *  - octave ghosts: a quieter note 12 semitones from a louder one it sits inside that appears
- *    well after it started (typically a sub-harmonic under a strong bass note). Octaves that
+ *  - octave ghosts: a quieter note 12 semitones below a louder one it sits inside that appears
+ *    well after it started (a sub-harmonic under a strong bass note). Octaves that
  *    start together are kept — a quiet upper octave may be a harmonic, but on guitar it is
  *    usually a real, softer string, and it never changes the chord name. Sub-harmonics
  *    (an octave or octave+fifth below) that are quieter and die first are dropped too;
@@ -53,7 +53,9 @@ function removeArtifacts(input: RawNote[]): RawNote[] {
     const ghost = around.some(
       (m) =>
         n.velocity < m.velocity * 0.85 &&
-        ((Math.abs(m.midi - n.midi) === 12 && n.start >= m.start + 0.1) ||
+        // sub-octave appearing under an already-sounding note (a melody note an octave
+        // *above* a held chord tone is real, so only notes below count)
+        ((m.midi - n.midi === 12 && n.start >= m.start + 0.1) ||
           // sub-harmonics (octave or octave+fifth below) that die before the note above
           ((m.midi - n.midi === 12 || m.midi - n.midi === 19) && n.end < m.end - 0.1)),
     );
@@ -173,12 +175,14 @@ export async function analyzePoly(
 
   onProgress("Estimating tempo", 0.94);
   const nFrames = Math.floor(x.length / HOP) + 1;
-  const tempo = estimateTempo(onsetEnvelope(x, nFrames), sr / HOP);
+  const rhythm = rhythmEnvelopes(x, nFrames);
+  const tempo = estimateTempo(rhythm.full, sr / HOP);
 
   onProgress("Finishing", 1);
   return {
     mode: "poly",
     sampleRate: sr,
+    groove: { full: rhythm.full, low: rhythm.low, hop: HOP / sr },
     duration,
     originalDuration,
     tempo,

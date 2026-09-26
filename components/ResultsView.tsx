@@ -17,8 +17,9 @@ import {
 import { useState } from "react";
 import { usePlayer } from "@/hooks/usePlayer";
 import { exportMidi, exportPdf, exportText } from "@/lib/export";
-import type { Arrangement, DetectMode, Instrument } from "@/lib/types";
+import type { Arrangement, ArrangeStyle, DetectMode, Instrument } from "@/lib/types";
 import { ModeToggle } from "./ModeToggle";
+import { StyleToggle } from "./StyleToggle";
 import { ChordStrip } from "./ChordStrip";
 import { GuitarTab } from "./GuitarTab";
 import { InstrumentToggle } from "./InstrumentToggle";
@@ -39,6 +40,7 @@ export function ResultsView({
   onMode,
   onInstrument,
   onTempo,
+  onStyle,
   onReset,
 }: {
   arr: Arrangement;
@@ -48,6 +50,7 @@ export function ResultsView({
   onMode: (m: DetectMode) => void;
   onInstrument: (i: Instrument) => void;
   onTempo: (bpm: number) => void;
+  onStyle: (s: ArrangeStyle) => void;
   onReset: () => void;
 }) {
   const player = usePlayer(arr);
@@ -199,6 +202,17 @@ export function ResultsView({
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <StyleToggle value={arr.style} instrument={arr.instrument} onChange={onStyle} />
+        <p className="text-sm text-slate-400">
+          {arr.style === "full"
+            ? "Every detected note, exactly as played."
+            : arr.instrument === "piano"
+              ? "Melody in the right hand, chords in the left on the song's beat (kick → bass notes)."
+              : "Chords strummed on the song's beat: ↓ on the beat, ↑ in between."}
+        </p>
       </div>
 
       {arr.instrument === "piano" ? (

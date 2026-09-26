@@ -94,8 +94,8 @@ for (const c of cases) {
 // Arrangement smoke test on the first case.
 const x = synth(cases[0].ref);
 const res = analyze(x, ANALYSIS_SR, x.length / ANALYSIS_SR, () => {});
-const piano = arrange(res, "piano", 120);
-const guitar = arrange(res, "guitar", 120);
+const piano = arrange(res, "piano", 120, "full");
+const guitar = arrange(res, "guitar", 120, "full");
 console.log("\nKey:", piano.key, "| chords:", piano.chords.map((c) => c.name).join(" "));
 console.log("MIDI bytes:", piano.midi.length, guitar.midi.length);
 console.log("\n" + piano.abc);
@@ -106,7 +106,7 @@ console.log("\n" + guitar.text.split("Tablature")[1]);
   const beat = 60 / 108;
   const ode = [64, 64, 65, 67, 67, 65, 64, 62];
   const xs = synth(melody(ode, beat, 0.3));
-  const r = arrange(analyze(xs, ANALYSIS_SR, xs.length / ANALYSIS_SR, () => {}), "piano");
+  const r = arrange(analyze(xs, ANALYSIS_SR, xs.length / ANALYSIS_SR, () => {}), "piano", undefined, "full");
   const onBeat = r.notes.every((n) => n.startStep % 4 === 0);
   if (!onBeat) failures++;
   console.log(`${onBeat ? "PASS" : "FAIL"}  grid aligned to first beat (starts: ${r.notes.map((n) => n.startStep).join(",")}, tempo ${r.tempo})`);

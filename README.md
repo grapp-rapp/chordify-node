@@ -28,6 +28,15 @@ Click **"Try the demo (melody + chords)"** on the home page to see the full pipe
 
 You can switch modes on the results screen, which re-analyses the same audio.
 
+## Easy arrangement vs. full transcription
+
+On the results screen, **Easy arrangement** (the default) turns the *whole song* into one playable part, Simply Piano / Simply Guitar style, whatever instruments it had. Drums can't become notes, so their **rhythm** is kept instead (`lib/music/easy.ts`):
+
+- **Piano:** the right hand plays the main melody, one note at a time. The left hand plays bass + chord on the song's own groove: kick-drum hits become bass notes, and snare/hi-hat hits become chord stabs.
+- **Guitar:** chord shapes strummed on the song's groove, with ↓ on the beat and ↑ in between. Chords are simplified to beginner-friendly triads.
+
+**Full transcription** shows every detected note exactly as played.
+
 ## Architecture
 
 There's no server. The DSP runs in a **Web Worker** in the browser.

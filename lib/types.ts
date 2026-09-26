@@ -26,6 +26,8 @@ export interface AnalysisResult {
   chroma: Float32Array;
   chromaHop: number; // seconds between chroma frames
   chromaEnergy: Float32Array; // per-frame loudness, for no-chord detection
+  /** Onset envelopes (drums + attacks), used to copy the song's groove into easy arrangements. */
+  groove: { full: Float32Array; low: Float32Array; hop: number };
   voicedRatio: number;
   warnings: string[];
 }
@@ -60,10 +62,15 @@ export interface GuitarPosition {
 
 export interface GuitarNote extends QNote {
   pos: GuitarPosition;
+  strum?: "down" | "up"; // set for strummed chords in easy arrangements
 }
+
+/** "easy": playable Simply-style arrangement of the whole song. "full": every detected note. */
+export type ArrangeStyle = "easy" | "full";
 
 export interface Arrangement {
   instrument: Instrument;
+  style: ArrangeStyle;
   tempo: number;
   stepSec: number;
   stepsPerBar: number;

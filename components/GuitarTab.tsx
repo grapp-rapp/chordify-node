@@ -97,6 +97,20 @@ const Measure = memo(function Measure({
           );
         })}
       </div>
+      {m.notes.some((n) => n.strum) && (
+        <div className="relative h-5" aria-label="Strum directions">
+          {[...new Map(m.notes.filter((n) => n.strum).map((n) => [n.startStep, n.strum])).entries()].map(([step, dir]) => (
+            <span
+              key={step}
+              className={`absolute top-0.5 text-center text-sm font-bold ${dir === "down" ? "text-cyan-300" : "text-violet-300"}`}
+              style={{ left: (step - start) * CELL_W, width: CELL_W }}
+              title={dir === "down" ? "Strum down" : "Strum up"}
+            >
+              {dir === "down" ? "↓" : "↑"}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
