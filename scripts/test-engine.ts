@@ -2,6 +2,8 @@
  * Accuracy check for the transcription engine using synthesized test audio.
  * Run: npm run test:engine
  */
+import assert from "node:assert/strict";
+import { guitarMelody } from "../lib/music/easy";
 import { analyze, ANALYSIS_SR } from "../lib/dsp/analyze";
 import { arrange } from "../lib/music/arrange";
 import { midiToName } from "../lib/music/theory";
@@ -134,4 +136,21 @@ try {
 } catch (e) {
   console.log("PASS  white noise ->", (e as Error).message);
 }
+
+
+// Dense lead phrase: level changes must simplify notes, never synthesize chords.
+const phrase = Array.from({ length: 16 }, (_, i) => ({
+  midi: 72 + i % 7, name: midiToName(72 + i % 7), startStep: i, endStep: i + 1,
+  start: i * 0.125, end: (i + 1) * 0.125, confidence: 1, velocity: 90,
+}));
+const levels = ([1, 2, 3] as const).map(level => guitarMelody(phrase, 0.125, level));
+assert.deepEqual(levels.map(notes => notes.length), [4, 8, 16]);
+for (const notes of levels) {
+  assert.ok(notes.every(n => n.midi % 12 === phrase[n.startStep].midi % 12));
+  assert.ok(notes.every((n, i) => n.endStep > n.startStep && (!i || notes[i - 1].endStep <= n.startStep)));
+}
+assert.deepEqual(guitarMelody([], 0.125, 1), []);
+assert.ok(guitarMelody(phrase.map(n => ({ ...n, midi: n.midi - 36 })), 0.125, 1).length > 0);
+console.log("PASS  guitar levels preserve pitch classes, simplify dense rhythms, handle low notes and silence");
+
 process.exit(failures ? 1 : 0);

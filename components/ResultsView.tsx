@@ -60,7 +60,7 @@ export function ResultsView({
   };
 
   const stats = [
-    { label: "Capo", value: arr.capo ? `Fret ${arr.capo}` : "None" },
+    { label: "Notes", value: arr.guitar.length },
     { label: "Key", value: arr.key },
     { label: "Bars", value: Math.ceil(arr.totalSteps / arr.stepsPerBar) },
     { label: "Chords", value: new Set(arr.chords.map((c) => c.name)).size },
@@ -204,10 +204,12 @@ export function ResultsView({
         </div>
       )}
 
+      <GuitarTab key={`${arr.style}-${arr.level}`} arr={arr} time={player.time} onSeek={player.seek} />
+
       <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
         <div className="card min-w-0 p-4">
           <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <Music2 className="h-4 w-4 text-amber-300" /> Chords
+            <Music2 className="h-4 w-4 text-amber-300" /> Chord reference · optional accompaniment
           </p>
           <ChordStrip chords={arr.chords} instrument={arr.instrument} time={player.time} onSeek={player.seek} />
         </div>
@@ -221,7 +223,7 @@ export function ResultsView({
         </div>
       </div>
 
-      <GuitarTab key={`${arr.style}-${arr.level}`} arr={arr} time={player.time} onSeek={player.seek} />
+
     </div>
   );
 }

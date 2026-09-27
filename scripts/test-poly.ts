@@ -229,25 +229,20 @@ async function bandCase(check: (ok: boolean, msg: string) => void): Promise<numb
   ok(!(tune.warnings ?? []).length, "easy sheet music parses cleanly");
 
   const g = arrange(res, "guitar", bpm, "easy");
-  const pattern = [...new Set(g.guitar.map((n) => `${n.startStep % 16}${n.strum === "down" ? "↓" : "↑"}`))].sort(
-    (a, b) => parseInt(a) - parseInt(b),
-  );
-  ok(g.guitar.length > 0 && g.guitar.every((n) => n.strum), `guitar strum pattern (16th positions): ${pattern.join(" ")}`);
-  console.log(g.text.split("Tablature")[1].split("\n").slice(2, 10).join("\n"));
-
-  // Guitar levels: beginner = ≤3 strings, one chord per bar, 2 strums a bar; intermediate = a strum per beat.
   const l1 = arrange(res, "guitar", bpm, "easy", 1);
   const l2 = arrange(res, "guitar", bpm, "easy", 2);
-  const strumSteps = (a: typeof l1) => [...new Set(a.guitar.map((n) => n.startStep))];
-  const maxStrings = Math.max(...strumSteps(l1).map((st) => l1.guitar.filter((n) => n.startStep === st).length));
-  const shapes = [...new Set(l1.chords.map((c) => `${c.shapeSymbol}[${c.shape}]`))].join(" ");
-  ok(
-    maxStrings <= 3 && l1.chords.every((c) => c.startStep % 16 === 0) && strumSteps(l1).length === (l1.totalSteps / 16) * 2,
-    `beginner: ≤3 strings (${maxStrings}), 1 chord per bar, 2 strums a bar; capo ${l1.capo}, shapes ${shapes}`,
-  );
-  ok(strumSteps(l2).length === (l2.totalSteps / 16) * 4, `intermediate: a strum on every beat (${strumSteps(l2).length} strums)`);
-  const sounding = (a: typeof l1) => a.chords.map((c) => c.name).join(" ");
-  ok(sounding(l1) === sounding(l2), `capo keeps the real chords: ${sounding(l1)}`);
+  for (const a of [l1, l2, g]) {
+    ok(a.guitar.length > 0 && a.guitar.every(n => !n.strum), "guitar level " + a.level + " plays picked notes");
+    ok(new Set(a.guitar.map(n => n.startStep)).size === a.guitar.length, "one note per attack");
+    ok(a.guitar.every((n, i) => !i || a.guitar[i - 1].endStep <= n.startStep), "melody notes do not overlap");
+    const tuning = [40, 45, 50, 55, 59, 64];
+    ok(a.guitar.every(n => tuning[n.pos.string] + n.pos.fret === n.midi + 12 * n.pos.transposed), "tab matches sounding pitches");
+    ok(a.capo === 0 && !a.text.includes("D/U = strum"), "no strum instructions or capo in melody export");
+  }
+  ok(l1.guitar.every(n => n.pos.fret <= 5) && l2.guitar.every(n => n.pos.fret <= 9), "easy and medium keep low frets");
+  ok(l1.guitar.length <= l2.guitar.length && l2.guitar.length <= g.guitar.length, "difficulty adds melody detail");
+  const recovered = melody.filter((m, i) => g.guitar.some(n => n.midi % 12 === m % 12 && Math.abs(n.startStep - i * 4) <= 1)).length;
+  ok(recovered >= 14, "hard guitar preserves the lead melody: " + recovered + "/16");
   return fails;
 }
 

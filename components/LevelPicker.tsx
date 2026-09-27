@@ -3,9 +3,9 @@
 export type GuitarLevel = 1 | 2 | 3 | "exact";
 
 const OPTIONS: { value: GuitarLevel; stars: string; label: string; hint: string }[] = [
-  { value: 1, stars: "⭐", label: "Beginner", hint: "1 chord per bar, tiny 1–3 finger chords, 2 strums a bar" },
-  { value: 2, stars: "⭐⭐", label: "Intermediate", hint: "Normal open chords (no barre chords), a strum on every beat" },
-  { value: 3, stars: "⭐⭐⭐", label: "Advanced", hint: "All the chords (7ths, barre chords) in the song's own rhythm ↓↑" },
+  { value: 1, stars: "⭐", label: "Easy", hint: "One note at a time · fewer notes · frets 0–5" },
+  { value: 2, stars: "⭐⭐", label: "Medium", hint: "More melody notes · eighth-note detail · frets 0–9" },
+  { value: 3, stars: "⭐⭐⭐", label: "Hard", hint: "Full extracted melody · quicker changes · wider fret range" },
   { value: "exact", stars: "🎯", label: "Exact notes", hint: "Every note that was detected — for learning a riff note by note" },
 ];
 

@@ -31,11 +31,10 @@ import {
 import { MAX_SECONDS } from "../audio";
 import { buildTimeMap, type TimeMap } from "./beats";
 import {
-  chooseCapo,
   detectGroove,
   dropRareChords,
   extractMelody,
-  guitarStrums,
+  guitarMelody,
   levelShape,
   onePerBar,
   pianoLeftHand,
@@ -256,7 +255,7 @@ interface Grip {
 }
 
 /** All playable string assignments for notes struck together (distinct strings, ≤ 4-fret span). */
-function gripsFor(notes: QNote[], shifted: { m: number; transposed: number }[]): Grip[] {
+function gripsFor(notes: QNote[], shifted: { m: number; transposed: number }[], maxFret = MAX_FRET): Grip[] {
   const grips: Grip[] = [];
   const used = new Array(6).fill(false);
   const cur: GuitarPosition[] = [];
@@ -273,7 +272,7 @@ function gripsFor(notes: QNote[], shifted: { m: number; transposed: number }[]):
     for (let s = 0; s < 6; s++) {
       if (used[s]) continue;
       const fret = m - GUITAR_TUNING[s];
-      if (fret < 0 || fret > MAX_FRET) continue;
+      if (fret < 0 || fret > maxFret) continue;
       const nMin = fret > 0 ? Math.min(minF, fret) : minF;
       const nMax = fret > 0 ? Math.max(maxF, fret) : maxF;
       if (fret > 0 && nMax - nMin > MAX_HAND_SPAN) continue;
@@ -307,7 +306,7 @@ function shiftIntoRange(midi: number) {
  * over grips minimises hand movement. If a grip is unplayable (more than six notes, or too
  * wide a stretch), the least important notes are dropped — melody (top) and bass are kept first.
  */
-function assignGuitar(notes: QNote[]): { guitar: GuitarNote[]; dropped: number } {
+function assignGuitar(notes: QNote[], maxFret = MAX_FRET): { guitar: GuitarNote[]; dropped: number } {
   const groups: QNote[][] = [];
   for (const n of notes) {
     const g = groups[groups.length - 1];
@@ -338,7 +337,7 @@ function assignGuitar(notes: QNote[]): { guitar: GuitarNote[]; dropped: number }
     }
     while (chosen.length) {
       const ordered = [...chosen].sort((a, b) => b.midi - a.midi);
-      const grips = gripsFor(ordered, ordered.map((n) => shiftIntoRange(n.midi)));
+      const grips = gripsFor(ordered, ordered.map((n) => shiftIntoRange(n.midi)), maxFret);
       if (grips.length) return grips;
       chosen = chosen.slice(0, -1);
       dropped++;
@@ -605,7 +604,7 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
         ? "full transcription"
         : a.instrument === "piano"
           ? "easy arrangement (melody + chords on the song's rhythm)"
-          : "easy arrangement (strummed chords on the song's rhythm)"
+          : `picked melody (difficulty level ${a.level})`
     }`,
     `Tempo: ${a.tempo} BPM   Time: 4/4   Key (estimated): ${a.key}${a.capo ? `   CAPO: fret ${a.capo} (chords below are the shapes you play)` : ""}`,
     `Notes: ${a.notes.length}   Length: ${a.duration.toFixed(1)}s`,
@@ -625,7 +624,7 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
   if (a.instrument === "guitar") {
     const legend = a.guitar.some((g) => g.strum) ? " D = strum down, U = strum up" : "";
     const sheet =
-      a.style === "easy" ? ["Chord sheet (one column per beat, D/U = strum down/up):", "", ...chordSheetLines(a), ""] : [];
+      a.guitar.some((g) => g.strum) ? ["Chord sheet (one column per beat, D/U = strum down/up):", "", ...chordSheetLines(a), ""] : [];
     return [
       ...header,
       ...sheet,
@@ -703,8 +702,7 @@ export function arrange(
   let chords = style === "easy" && level < 3 ? simplifyChords(detected, stepSec, key) : detected;
   if (style === "easy") chords = dropRareChords(chords, stepSec);
   if (style === "easy" && level === 1) chords = onePerBar(chords, totalSteps, stepSec);
-  // Beginner/intermediate guitar: a capo can turn hard chords into easy shapes.
-  const capo = instrument === "guitar" && style === "easy" ? chooseCapo(chords, level) : 0;
+  const capo = 0; // Picked melodies use standard tuning, with no chord-driven capo.
   if (instrument === "guitar") {
     chords = chords.map((c) => {
       const shapeRoot = (c.root - capo + 12) % 12;
@@ -735,7 +733,7 @@ export function arrange(
       bass = notationBass = pianoLeftHand(chords, groove, totalSteps, stepSec);
       outNotes = [...treble, ...bass].sort((a, b) => a.startStep - b.startStep || a.midi - b.midi);
     } else {
-      guitar = guitarStrums(chords, groove, totalSteps, stepSec, level, capo);
+      ({ guitar, dropped } = assignGuitar(guitarMelody(notes, stepSec, level), level === 1 ? 5 : level === 2 ? 9 : MAX_FRET));
       outNotes = guitar;
     }
   }

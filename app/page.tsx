@@ -103,10 +103,10 @@ export default function Home() {
           <div className="space-y-8">
             <section className="mx-auto max-w-2xl text-center">
               <h1 className="bg-gradient-to-br from-white to-slate-400 bg-clip-text text-3xl font-bold tracking-tight text-transparent sm:text-5xl">
-                Turn any song into easy guitar chords
+                Turn your song into a guitar melody
               </h1>
               <p className="mt-3 text-slate-400 sm:text-lg">
-                Upload or record a song. ChordifyNode finds the chords and the beat, then writes it out for guitar at your level — from beginner to exact tabs.
+                Upload or record a song. ChordifyNode finds the notes and turns them into guitar tabs at your level — one note at a time.
               </p>
             </section>
 
@@ -158,9 +158,9 @@ export default function Home() {
 
             <section className="grid gap-3 text-sm text-slate-400 sm:grid-cols-3">
               {[
-                ["Pick your level", "Beginner (tiny 1–3 finger chords), Intermediate (open chords), Advanced (the real rhythm) or exact notes."],
-                ["Capo made easy", "If a song's chords are hard, ChordifyNode tells you where to put a capo so you can use easy shapes."],
-                ["Any song", "Songs with drums, band or vocals become strummed chords that follow the song's own beat."],
+                ["Pick your level", "Easy for fewer notes, Medium for more detail, Hard for the full extracted melody, or Exact for all detected notes."],
+                ["Follow the melody", "Read clear fret numbers, pick one string at a time, and hear your part as you practise."],
+                ["Any song", "Extract a melody from songs with vocals or a band. Clear recordings give the best results."],
               ].map(([t, d]) => (
                 <div key={t} className="card p-4">
                   <p className="mb-1 flex items-center gap-2 font-semibold text-slate-200">

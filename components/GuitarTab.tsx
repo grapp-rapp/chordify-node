@@ -7,7 +7,7 @@ import type { Arrangement, ChordEvent, GuitarNote } from "@/lib/types";
 import { ChordSheet } from "./ChordSheet";
 
 const CELL_W = 22;
-const ROW_H = 20;
+const ROW_H = 26;
 
 interface MeasureData {
   index: number;
@@ -29,10 +29,10 @@ const Measure = memo(function Measure({
 }) {
   const start = m.index * steps;
   return (
-    <div className="relative shrink-0" style={{ width: steps * CELL_W + 2 }}>
+    <div className="relative shrink-0 rounded-xl border border-white/10 bg-slate-950/50 px-2 pb-2 pt-6" style={{ width: steps * CELL_W + 20 }}>
       {/* chord names */}
       <div className="relative h-5">
-        <span className="absolute -top-3.5 left-0 text-[10px] text-slate-500">{m.index + 1}</span>
+        <span className="absolute -top-3.5 left-0 text-[10px] text-slate-500">Bar {m.index + 1}</span>
         {m.chords.map((c) => (
           <span
             key={c.startStep}
@@ -83,7 +83,7 @@ const Measure = memo(function Measure({
               key={i}
               title={`${n.name} — ${GUITAR_STRING_NAMES[n.pos.string]} string, fret ${n.pos.fret}${n.pos.transposed ? ` (octave-shifted)` : ""}`}
               className={`absolute z-[5] flex items-center justify-center rounded-md font-mono text-[12px] font-bold leading-none transition-colors ${
-                active ? "bg-amber-300 text-black" : n.pos.transposed ? "bg-[#1b1530] text-fuchsia-300" : "bg-[#141726] text-slate-100"
+                active ? "bg-amber-300 text-black" : n.pos.transposed ? "bg-[#1b1530] text-fuchsia-300" : "bg-cyan-950 text-cyan-100 ring-1 ring-cyan-400/30"
               }`}
               style={{
                 left: (n.startStep - start) * CELL_W + 1,
@@ -97,6 +97,9 @@ const Measure = memo(function Measure({
             </span>
           );
         })}
+      </div>
+      <div className="relative mt-1 h-5 text-[10px] text-slate-500" aria-label="Beat numbers">
+        {[0, 4, 8, 12].map(s => <span key={s} className="absolute" style={{ left: s * CELL_W + 5 }}>{s / 4 + 1}</span>)}
       </div>
       {m.notes.some((n) => n.strum) && (
         <div className="relative h-5" aria-label="Strum directions">
@@ -125,8 +128,8 @@ export function GuitarTab({
   time: number;
   onSeek: (t: number) => void;
 }) {
-  // Easy levels open on the songbook-style chord sheet; exact notes open on the tab.
-  const [mode, setMode] = useState<"chords" | "interactive" | "text">(arr.style === "easy" ? "chords" : "interactive");
+  // Every level opens on the actual picked notes.
+  const [mode, setMode] = useState<"chords" | "interactive" | "text">("interactive");
   const [copied, setCopied] = useState(false);
   const steps = arr.stepsPerBar;
 
@@ -162,14 +165,14 @@ export function GuitarTab({
             onClick={() => setMode("chords")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 ${mode === "chords" ? "bg-white/10 text-white" : "hover:text-slate-200"}`}
           >
-            <ListMusic className="h-3.5 w-3.5" /> Chords
+            <ListMusic className="h-3.5 w-3.5" /> Chord reference
           </button>
           <button
             type="button"
             onClick={() => setMode("interactive")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 ${mode === "interactive" ? "bg-white/10 text-white" : "hover:text-slate-200"}`}
           >
-            <LayoutGrid className="h-3.5 w-3.5" /> Tab
+            <LayoutGrid className="h-3.5 w-3.5" /> Melody tab
           </button>
           <button
             type="button"
@@ -185,16 +188,20 @@ export function GuitarTab({
         <ChordSheet arr={arr} time={time} onSeek={onSeek} />
       ) : mode === "interactive" ? (
         <div className="scroll-thin max-h-[560px] overflow-auto p-4">
+          <div className="mb-4 rounded-xl bg-cyan-400/5 px-3 py-2 text-sm text-cyan-100">
+            {arr.style === "easy" ? "Pick one string at a time. Follow the fret numbers from left to right." : "Play the detected notes from left to right."}
+            <span className="mt-1 block text-xs text-slate-400">0 = open string · top line = thinnest string · click a bar to jump there</span>
+          </div>
           <div className="flex">
             {/* string labels */}
-            <div className="mr-1 shrink-0 pt-5 font-mono text-xs text-slate-400">
+            <div className="mr-1 shrink-0 pt-[45px] font-mono text-xs text-slate-400">
               {[...GUITAR_STRING_NAMES].reverse().map((s) => (
                 <div key={s} className="flex items-center" style={{ height: ROW_H }}>
                   {s}
                 </div>
               ))}
             </div>
-            <div className="flex flex-wrap gap-y-6">
+            <div className="flex flex-wrap gap-3">
               {measures.map((m) => (
                 <Measure
                   key={m.index}

@@ -4,7 +4,7 @@
  *  - the groove (where the kick / snare / hats hit within a bar) drives the accompaniment;
  *  - piano: right hand plays the melody (one note at a time), left hand plays bass + chord
  *    on the groove — kick hits become bass notes, other hits chord stabs;
- *  - guitar: the chord shapes are strummed on the groove (down on beats, up in between).
+ *  - guitar: a single picked melody, with note density and fret range set by difficulty.
  */
 import type { AnalysisResult, ChordEvent, GuitarNote, QNote } from "../types";
 import type { TimeMap } from "./beats";
@@ -203,9 +203,10 @@ export function pianoLeftHand(chords: ChordEvent[], groove: Groove, totalSteps: 
 // ---------------------------------------------------------------- guitar levels
 
 /**
- * 1 = Beginner: one chord per bar, tiny 1–3 finger shapes on the top strings, two strums a bar.
- * 2 = Intermediate: chords as they change, open shapes without barres, a strum on every beat.
- * 3 = Advanced: every chord (7ths, barres) strummed in the song's own rhythm with ups and downs.
+ * 1 = Easy: sparse melody, frets 0–5.
+ * 2 = Medium: eighth-note detail, frets 0–9.
+ * 3 = Hard: full extracted melody, frets 0–19.
+ * Chord helpers below remain available for the optional accompaniment reference.
  */
 export type Level = 1 | 2 | 3;
 
@@ -394,4 +395,29 @@ export function guitarStrums(
     });
   }
   return out;
+}
+
+/** A picked melody, with fewer attacks at lower levels. Never invent chord strums. */
+export function guitarMelody(notes: QNote[], stepSec: number, level: Level): QNote[] {
+  // Lift low-register recordings for the shared melody extractor, preserving pitch classes.
+  const source = notes.some(n => n.midi >= 55 && n.midi <= 96 && n.confidence >= 0.2)
+    ? notes : notes.map(n => ({ ...n, midi: n.midi < 55 ? n.midi + 24 : n.midi }));
+  const melody = extractMelody(source, stepSec);
+  const spacing = level === 1 ? 4 : level === 2 ? 2 : 1;
+  const selected: QNote[] = [];
+  for (const n of melody) {
+    const prev = selected[selected.length - 1];
+    if (!prev || n.startStep - prev.startStep >= spacing) selected.push({ ...n });
+  }
+  // A single octave offset keeps the contour intact whenever the whole line fits.
+  const ceiling = level === 1 ? 69 : level === 2 ? 73 : 83;
+  const peak = selected.reduce((max, n) => Math.max(max, n.midi), 40);
+  const shift = Math.max(0, Math.ceil((peak - ceiling) / 12)) * 12;
+  return selected.map((n, i) => {
+    let midi = n.midi - shift;
+    while (midi < 40) midi += 12;
+    while (midi > ceiling) midi -= 12;
+    const endStep = Math.min(n.endStep, selected[i + 1]?.startStep ?? n.endStep);
+    return { ...n, midi, name: midiToName(midi), endStep, start: n.startStep * stepSec, end: endStep * stepSec };
+  });
 }
