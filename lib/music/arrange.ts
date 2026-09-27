@@ -30,7 +30,18 @@ import {
 } from "./theory";
 import { MAX_SECONDS } from "../audio";
 import { buildTimeMap, type TimeMap } from "./beats";
-import { detectGroove, extractMelody, guitarStrums, pianoLeftHand, simplifyChords } from "./easy";
+import {
+  chooseCapo,
+  detectGroove,
+  dropRareChords,
+  extractMelody,
+  guitarStrums,
+  levelShape,
+  onePerBar,
+  pianoLeftHand,
+  simplifyChords,
+  type Level,
+} from "./easy";
 
 export const STEPS_PER_BAR = 16; // 4/4 in 16th notes
 const CHORD_WINDOW = 8; // detect chords every half bar
@@ -564,6 +575,27 @@ function describeNotes(notes: QNote[]): string[] {
   return lines.length ? lines : ["  (none)"];
 }
 
+/** Songbook-style lines: per bar, the chord on each beat and the strums (8th-note grid). */
+function chordSheetLines(a: Omit<Arrangement, "text" | "midi">): string[] {
+  const strumAt = new Map<number, string>();
+  a.guitar.forEach((g) => g.strum && strumAt.set(g.startStep, g.strum === "down" ? "D" : "U"));
+  const lines: string[] = [];
+  for (let b = 0; b * STEPS_PER_BAR < a.totalSteps; b++) {
+    let chordsRow = "";
+    let strumRow = "";
+    for (let beat = 0; beat < 4; beat++) {
+      const s = b * STEPS_PER_BAR + beat * 4;
+      const c =
+        a.chords.find((ch) => ch.startStep === s) ??
+        (beat === 0 ? a.chords.find((ch) => ch.startStep < s && ch.endStep > s) : undefined);
+      chordsRow += (c ? (c.shapeSymbol ?? c.symbol) : ".").padEnd(8);
+      strumRow += `${strumAt.get(s) ?? "-"} ${strumAt.get(s + 2) ?? "-"}`.padEnd(8);
+    }
+    lines.push(`Bar ${String(b + 1).padStart(3)} | ${chordsRow}|`, `        | ${strumRow}|`);
+  }
+  return lines;
+}
+
 function buildText(a: Omit<Arrangement, "text" | "midi">): string {
   const header = [
     "ChordifyNode Transcription",
@@ -575,7 +607,7 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
           ? "easy arrangement (melody + chords on the song's rhythm)"
           : "easy arrangement (strummed chords on the song's rhythm)"
     }`,
-    `Tempo: ${a.tempo} BPM   Time: 4/4   Key (estimated): ${a.key}`,
+    `Tempo: ${a.tempo} BPM   Time: 4/4   Key (estimated): ${a.key}${a.capo ? `   CAPO: fret ${a.capo} (chords below are the shapes you play)` : ""}`,
     `Notes: ${a.notes.length}   Length: ${a.duration.toFixed(1)}s`,
     "",
     "Chord progression:",
@@ -584,7 +616,7 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
         a.chords
           .map(
             (c) =>
-              `${c.name}${a.instrument === "guitar" ? ` [${guitarChordShape(c.root, c.quality)}]` : ""} @ bar ${Math.floor(c.startStep / STEPS_PER_BAR) + 1}`,
+              `${c.name}${a.instrument === "guitar" ? ` [${c.shape ?? guitarChordShape(c.root, c.quality)}]` : ""} @ bar ${Math.floor(c.startStep / STEPS_PER_BAR) + 1}`,
           )
           .join(" | ")
       : "  (none detected)",
@@ -592,7 +624,15 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
   ];
   if (a.instrument === "guitar") {
     const legend = a.guitar.some((g) => g.strum) ? " D = strum down, U = strum up" : "";
-    return [...header, `Tablature (each dash = 1/16 note):${legend}`, "", ...buildTabLines(a.guitar, a.chords, a.totalSteps)].join("\n");
+    const sheet =
+      a.style === "easy" ? ["Chord sheet (one column per beat, D/U = strum down/up):", "", ...chordSheetLines(a), ""] : [];
+    return [
+      ...header,
+      ...sheet,
+      `Tablature (each dash = 1/16 note):${legend}`,
+      "",
+      ...buildTabLines(a.guitar, a.chords, a.totalSteps),
+    ].join("\n");
   }
   return [
     ...header,
@@ -639,6 +679,7 @@ export function arrange(
   instrument: Instrument,
   tempoOverride?: number,
   style: ArrangeStyle = "easy",
+  level: Level = 3,
 ): Arrangement {
   const tempo = Math.min(240, Math.max(40, Math.round(tempoOverride ?? analysis.tempo)));
   const stepSec = 60 / tempo / 4;
@@ -658,7 +699,22 @@ export function arrange(
   const key = detectKey(profile);
   const notation = analysis.mode === "poly" ? sustainChords(notes, stepSec) : notes;
   const detected = detectChords(analysis, notation, stepSec, totalSteps, key, map);
-  const chords = style === "easy" ? simplifyChords(detected, stepSec, key) : detected;
+  // Easy levels 1–2 use plain triads (level 1: one chord per bar); level 3 and exact keep 7ths etc.
+  let chords = style === "easy" && level < 3 ? simplifyChords(detected, stepSec, key) : detected;
+  if (style === "easy") chords = dropRareChords(chords, stepSec);
+  if (style === "easy" && level === 1) chords = onePerBar(chords, totalSteps, stepSec);
+  // Beginner/intermediate guitar: a capo can turn hard chords into easy shapes.
+  const capo = instrument === "guitar" && style === "easy" ? chooseCapo(chords, level) : 0;
+  if (instrument === "guitar") {
+    chords = chords.map((c) => {
+      const shapeRoot = (c.root - capo + 12) % 12;
+      return {
+        ...c,
+        shape: style === "easy" ? levelShape(shapeRoot, c.quality, level) : guitarChordShape(c.root, c.quality),
+        shapeSymbol: chordName(shapeRoot, c.quality).symbol,
+      };
+    });
+  }
 
   let treble = notes.filter((n) => n.midi >= SPLIT_POINT);
   let bass = notes.filter((n) => n.midi < SPLIT_POINT);
@@ -679,7 +735,7 @@ export function arrange(
       bass = notationBass = pianoLeftHand(chords, groove, totalSteps, stepSec);
       outNotes = [...treble, ...bass].sort((a, b) => a.startStep - b.startStep || a.midi - b.midi);
     } else {
-      guitar = guitarStrums(chords, groove, totalSteps, stepSec);
+      guitar = guitarStrums(chords, groove, totalSteps, stepSec, level, capo);
       outNotes = guitar;
     }
   }
@@ -697,6 +753,8 @@ export function arrange(
   const base = {
     instrument,
     style,
+    level,
+    capo,
     tempo,
     stepSec,
     stepsPerBar: STEPS_PER_BAR,

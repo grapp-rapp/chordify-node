@@ -4,7 +4,7 @@ import { AudioLines, ListMusic } from "lucide-react";
 import type { DetectMode } from "@/lib/types";
 
 const OPTIONS: { value: DetectMode; label: string; hint: string; Icon: typeof ListMusic }[] = [
-  { value: "poly", label: "Chords & notes", hint: "Several notes at once — piano, guitar, full parts", Icon: ListMusic },
+  { value: "poly", label: "Chords & notes", hint: "Full songs, bands, strummed guitar — several notes at once", Icon: ListMusic },
   { value: "melody", label: "Melody only", hint: "One note at a time — singing, whistling, solos", Icon: AudioLines },
 ];
 

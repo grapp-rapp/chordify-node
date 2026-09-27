@@ -1,6 +1,8 @@
 # ChordifyNode
 
-Record or upload audio (MP3 / WAV / M4A) and turn it into playable **piano notes & sheet music** or **guitar tabs with chords**. It detects **chords and several notes at once**, not just a single melody. Everything runs locally in the browser, so audio never leaves your device.
+Record or upload a song (MP3 / WAV / M4A) and get **easy guitar chords at your level**: beginner mini-chords with an automatic capo, open chords, the song's real strumming rhythm, or exact note-by-note tabs. Everything runs locally in the browser, so audio never leaves your device.
+
+Live: https://chordify-node.vercel.app
 
 ## Quick start
 
@@ -28,14 +30,18 @@ Click **"Try the demo (melody + chords)"** on the home page to see the full pipe
 
 You can switch modes on the results screen, which re-analyses the same audio.
 
-## Easy arrangement vs. full transcription
+## Guitar levels
 
-On the results screen, **Easy arrangement** (the default) turns the *whole song* into one playable part, Simply Piano / Simply Guitar style, whatever instruments it had. Drums can't become notes, so their **rhythm** is kept instead (`lib/music/easy.ts`):
+| Level | Chords | Strumming | Notes |
+| --- | --- | --- | --- |
+| ⭐ Beginner | 1 chord per bar, tiny 1–3 finger shapes on the top 3 strings | ↓ on beats 1 and 3 | lighter sound, very easy |
+| ⭐⭐ Intermediate | chords as they change, open chords (no barres) | ↓ on every beat | fuller |
+| ⭐⭐⭐ Advanced | every chord (7ths, sus, barre chords) | the song's own groove with ↓↑ | full |
+| 🎯 Exact notes | every detected note as tab | – | for learning riffs |
 
-- **Piano:** the right hand plays the main melody, one note at a time. The left hand plays bass + chord on the song's own groove: kick-drum hits become bass notes, and snare/hi-hat hits become chord stabs.
-- **Guitar:** chord shapes strummed on the song's groove, with ↓ on the beat and ↑ in between. Chords are simplified to beginner-friendly triads.
+For Beginner and Intermediate, `chooseCapo` tries capo frets 0–7 and picks the one that turns the song's chords into the easiest shapes (e.g. C G Am F → capo 5, G D Em C). Chords heard for less than two bars in the whole song are folded into their neighbours. The easy levels open on a songbook-style **chord sheet** (one box per bar with the chord and ↓/↑ strums); the number tab is one click away. Logic lives in `lib/music/easy.ts`.
 
-**Full transcription** shows every detected note exactly as played.
+The engine can still produce piano arrangements (`arrange(..., "piano")`, used by the tests), but the app is guitar-only.
 
 ## Architecture
 

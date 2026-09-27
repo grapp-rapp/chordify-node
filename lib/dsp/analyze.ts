@@ -235,43 +235,46 @@ function pickOnsets(env: Float32Array): Uint8Array {
   return isOnset;
 }
 
-export function estimateTempo(env: Float32Array, frameRate: number): number {
-  const n = env.length;
+/**
+ * Tempo from the onset envelope's autocorrelation. A candidate beat length only wins if the
+ * whole metre agrees with it: the beat itself, the 8th notes between beats, and half bars
+ * (2 beats). That separates the true tempo from 3:2 look-alikes — dotted rhythms
+ * repeat every 1.5 beats — and from half/double tempo. `low` (kick/bass band) is weighted in,
+ * because off-beat hi-hats are often the loudest attacks.
+ */
+export function estimateTempo(full: Float32Array, frameRate: number, low?: Float32Array): number {
+  const n = full.length;
   if (n < frameRate * 4) return 120;
+  const env = low ? Float32Array.from(full, (v, i) => v + 1.5 * low[i]) : full;
   let mean = 0;
   for (let i = 0; i < n; i++) mean += env[i];
   mean /= n;
-  const minLag = Math.floor((60 / 200) * frameRate);
-  const maxLag = Math.min(n - 1, Math.ceil((60 / 50) * frameRate));
-  let bestLag = 0;
-  let best = -Infinity;
-  const scores = new Float64Array(maxLag + 2);
-  for (let lag = minLag; lag <= maxLag; lag++) {
+  const minBeat = (60 / 180) * frameRate;
+  const maxBeat = (60 / 60) * frameRate;
+  const maxLag = Math.min(n - 1, Math.ceil(maxBeat * 4) + 1);
+  const ac = new Float64Array(maxLag + 1);
+  for (let lag = 1; lag <= maxLag; lag++) {
     let s = 0;
     for (let i = 0; i + lag < n; i++) s += (env[i] - mean) * (env[i + lag] - mean);
-    s /= n - lag;
-    const bpm = (60 * frameRate) / lag;
-    // Log-normal prior centred on 110 BPM (one-octave std), as in common beat trackers.
-    const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 110), 2));
-    scores[lag] = s * prior;
-    if (scores[lag] > best) {
-      best = scores[lag];
-      bestLag = lag;
-    }
+    ac[lag] = s / (n - lag);
   }
-  if (!bestLag || best <= 0) return 120;
-  let lag = bestLag;
-  if (bestLag > minLag && bestLag < maxLag) {
-    const a = scores[bestLag - 1];
-    const b = scores[bestLag];
-    const c = scores[bestLag + 1];
-    const denom = a - 2 * b + c;
-    if (Math.abs(denom) > 1e-12) lag = bestLag + (0.5 * (a - c)) / denom;
+  const at = (lag: number) => {
+    const i = Math.floor(lag);
+    if (i < 1 || i + 1 > maxLag) return 0;
+    const f = lag - i;
+    return ac[i] * (1 - f) + ac[i + 1] * f;
+  };
+  let best = { bpm: 120, score: -Infinity };
+  for (let beat = minBeat; beat <= maxBeat; beat += 0.25) {
+    const bpm = (60 * frameRate) / beat;
+    const metre = at(beat) + 0.5 * at(beat / 2) + 0.35 * at(beat * 2);
+    const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 115), 2));
+    const score = metre * prior;
+    if (score > best.score) best = { bpm, score };
   }
-  let bpm = (60 * frameRate) / lag;
-  while (bpm < 70) bpm *= 2;
-  while (bpm > 170) bpm /= 2;
-  return Math.round(bpm);
+  if (!(best.score > 0)) return 120;
+  // Songs slower than ~72 BPM are rare; such a result is almost always half the real tempo.
+  return Math.round(best.bpm < 72 ? best.bpm * 2 : best.bpm);
 }
 
 /**
@@ -559,7 +562,7 @@ export function analyze(
   if (meanConf < 0.7) warnings.push("Pitch confidence is low; some notes may be wrong. Faded notes are least certain.");
 
   onProgress("Estimating tempo", 0.88);
-  const tempo = estimateTempo(env, sr / HOP);
+  const tempo = estimateTempo(env, sr / HOP, rhythm.low);
 
   onProgress("Extracting harmony", 0.92);
   const { chroma, chromaEnergy, chromaHop } = chromagram(x, sr, tuningCents);

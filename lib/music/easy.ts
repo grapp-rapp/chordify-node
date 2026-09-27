@@ -200,17 +200,194 @@ export function pianoLeftHand(chords: ChordEvent[], groove: Groove, totalSteps: 
   return out.sort((a, b) => a.startStep - b.startStep || a.midi - b.midi);
 }
 
-/** Guitar: the chord's shape strummed on the groove — down on the beat, up on the "and". */
-export function guitarStrums(chords: ChordEvent[], groove: Groove, totalSteps: number, stepSec: number): GuitarNote[] {
+// ---------------------------------------------------------------- guitar levels
+
+/**
+ * 1 = Beginner: one chord per bar, tiny 1–3 finger shapes on the top strings, two strums a bar.
+ * 2 = Intermediate: chords as they change, open shapes without barres, a strum on every beat.
+ * 3 = Advanced: every chord (7ths, barres) strummed in the song's own rhythm with ups and downs.
+ */
+export type Level = 1 | 2 | 3;
+
+/** Beginner "mini" chords: top three strings only (low E → high e). */
+const MINI_SHAPES: Record<string, string> = {
+  "0maj": "xxx010",
+  "2maj": "xxx232",
+  "4maj": "xxx100",
+  "5maj": "xxx211",
+  "7maj": "xxx003",
+  "9maj": "xxx220",
+  "2min": "xxx231",
+  "4min": "xxx000",
+  "9min": "xxx210",
+};
+
+/** Intermediate: the classic open chords, with small four-string shapes instead of barres. */
+const OPEN_SHAPES: Record<string, string> = {
+  "0maj": "x32010",
+  "2maj": "xx0232",
+  "4maj": "022100",
+  "5maj": "xx3211",
+  "7maj": "320003",
+  "9maj": "x02220",
+  "2min": "xx0231",
+  "4min": "022000",
+  "9min": "x02210",
+};
+
+export function parseShape(shape: string): number[] {
+  return (shape.includes("-") ? shape.split("-") : shape.split("")).map((f) => (f === "x" ? -1 : Number(f)));
+}
+
+/**
+ * Finds the easiest grip that plays every note of the chord on the given (adjacent) strings:
+ * low frets, at most 3 fingers (notes on the lowest fret can share a finger), ≤ 3-fret stretch.
+ */
+function searchShape(root: number, quality: ChordQuality, strings: number[], maxFret = 7): string | null {
+  const tones = chordTones(root, quality);
+  let best: { frets: number[]; cost: number } | null = null;
+  const frets = new Array(6).fill(-1);
+  const visit = (k: number) => {
+    if (k === strings.length) {
+      const pcs = new Set(strings.map((s) => (TUNING[s] + frets[s]) % 12));
+      if (!tones.every((t) => pcs.has(t))) return;
+      const fretted = strings.map((s) => frets[s]).filter((f) => f > 0);
+      const minF = fretted.length ? Math.min(...fretted) : 0;
+      const maxF = fretted.length ? Math.max(...fretted) : 0;
+      if (maxF - minF > 3) return;
+      const atMin = fretted.filter((f) => f === minF).length;
+      const fingers = fretted.length - (atMin > 1 ? atMin - 1 : 0);
+      if (fingers > 3) return;
+      const rootInBass = (TUNING[strings[0]] + frets[strings[0]]) % 12 === root;
+      const cost = fingers + maxF * 0.3 + (rootInBass ? 0 : 0.5);
+      if (!best || cost < best.cost) best = { frets: [...frets], cost };
+      return;
+    }
+    const s = strings[k];
+    for (let f = 0; f <= maxFret; f++) {
+      if (!tones.includes((TUNING[s] + f) % 12)) continue;
+      frets[s] = f;
+      visit(k + 1);
+    }
+    frets[s] = -1;
+  };
+  visit(0);
+  const found = best as { frets: number[] } | null;
+  return found ? found.frets.map((f) => (f < 0 ? "x" : String(f))).join("") : null;
+}
+
+/** The chord shape to show and play at a given level. */
+export function levelShape(root: number, quality: ChordQuality, level: Level): string {
+  const key = `${root}${quality}`;
+  if (level === 1) return MINI_SHAPES[key] ?? searchShape(root, quality, [3, 4, 5], 5) ?? levelShape(root, quality, 2);
+  if (level === 2) return OPEN_SHAPES[key] ?? searchShape(root, quality, [2, 3, 4, 5]) ?? guitarChordShape(root, quality);
+  return guitarChordShape(root, quality);
+}
+
+/** How hard a shape is to play: fingers used, how far up the neck, and whether it's a well-known shape. */
+function shapeDifficulty(root: number, quality: ChordQuality, level: Level): number {
+  const key = `${root}${quality}`;
+  const known = level === 1 ? key in MINI_SHAPES : key in OPEN_SHAPES;
+  const fretted = parseShape(levelShape(root, quality, level)).filter((f) => f > 0);
+  const maxF = fretted.length ? Math.max(...fretted) : 0;
+  const minF = fretted.length ? Math.min(...fretted) : 0;
+  return fretted.length + Math.max(0, maxF - 3) + (maxF - minF) * 0.5 + (known ? 0 : 2);
+}
+
+/**
+ * Picks the capo fret (0–7) that turns the song's chords into the easiest shapes, weighted by how
+ * long each chord is played — e.g. Bb F Gm Eb becomes G D Em C with capo 3.
+ */
+export function chooseCapo(chords: ChordEvent[], level: Level): number {
+  if (level === 3 || !chords.length) return 0;
+  let best = 0;
+  let bestCost = Infinity;
+  for (let capo = 0; capo <= 7; capo++) {
+    let cost = 0;
+    for (const c of chords) cost += shapeDifficulty((c.root - capo + 12) % 12, c.quality, level) * (c.endStep - c.startStep);
+    cost *= 1 + capo * 0.03; // prefer no capo / a low capo when it's nearly as easy
+    if (cost < bestCost - 1e-9) {
+      bestCost = cost;
+      best = capo;
+    }
+  }
+  return best;
+}
+
+/**
+ * Songbook clean-up: a chord heard for less than two bars in the whole song is usually a passing
+ * note or a detection blip. It is folded into the chord before it (or after, at the very start).
+ */
+export function dropRareChords(chords: ChordEvent[], stepSec: number): ChordEvent[] {
+  const total = new Map<string, number>();
+  for (const c of chords) total.set(c.name, (total.get(c.name) ?? 0) + (c.endStep - c.startStep));
+  const common = chords.filter((c) => (total.get(c.name) ?? 0) >= 2 * BAR);
+  if (!common.length) return chords;
+  const out: ChordEvent[] = [];
+  for (const c of chords) {
+    const last = out[out.length - 1];
+    if ((total.get(c.name) ?? 0) >= 2 * BAR) {
+      if (last && last.name === c.name && last.endStep === c.startStep) {
+        last.endStep = c.endStep;
+        last.end = c.endStep * stepSec;
+      } else out.push({ ...c });
+    } else if (last && last.endStep === c.startStep) {
+      last.endStep = c.endStep;
+      last.end = c.endStep * stepSec;
+    }
+  }
+  // A rare chord at the very start: let the first common chord begin there instead.
+  if (out.length && chords.length && out[0].startStep > chords[0].startStep) {
+    out[0] = { ...out[0], startStep: chords[0].startStep, start: chords[0].startStep * stepSec };
+  }
+  return out;
+}
+
+/** Beginner: keep only the chord that sounds longest in each bar. */
+export function onePerBar(chords: ChordEvent[], totalSteps: number, stepSec: number): ChordEvent[] {
+  const out: ChordEvent[] = [];
+  for (let b0 = 0; b0 < totalSteps; b0 += BAR) {
+    let best: ChordEvent | null = null;
+    let bestLen = 0;
+    for (const c of chords) {
+      const len = Math.min(c.endStep, b0 + BAR) - Math.max(c.startStep, b0);
+      if (len > bestLen) {
+        best = c;
+        bestLen = len;
+      }
+    }
+    if (!best) continue;
+    const last = out[out.length - 1];
+    if (last && last.root === best.root && last.quality === best.quality && last.endStep === b0) {
+      last.endStep = b0 + BAR;
+      last.end = last.endStep * stepSec;
+    } else out.push({ ...best, startStep: b0, endStep: b0 + BAR, start: b0 * stepSec, end: (b0 + BAR) * stepSec });
+  }
+  return out;
+}
+
+/**
+ * Guitar strumming for a level: Beginner strums on beats 1 and 3, Intermediate on every beat,
+ * Advanced copies the song's groove (down on the beat, up on the "and").
+ */
+export function guitarStrums(
+  chords: ChordEvent[],
+  groove: Groove,
+  totalSteps: number,
+  stepSec: number,
+  level: Level = 3,
+  capo = 0,
+): GuitarNote[] {
+  const pattern: Groove =
+    level === 1 ? { hits: [0, 8], bassHits: new Set() } : level === 2 ? { hits: [0, 4, 8, 12], bassHits: new Set() } : groove;
   const out: GuitarNote[] = [];
-  for (const { start, end, chord, pos } of slots(chords, groove, totalSteps)) {
-    const shape = guitarChordShape(chord.root, chord.quality);
-    const frets = (shape.includes("-") ? shape.split("-") : shape.split("")).map((f) => (f === "x" ? -1 : Number(f)));
-    const strum = pos % 4 === 2 ? "up" : "down";
+  for (const { start, end, chord, pos } of slots(chords, pattern, totalSteps)) {
+    const frets = parseShape(chord.shape ?? levelShape(chord.root, chord.quality, level));
+    const strum = level === 3 && pos % 4 === 2 ? "up" : "down";
     frets.forEach((fret, string) => {
       if (fret < 0) return;
       out.push({
-        ...note(TUNING[string] + fret, start, end, stepSec, strum === "down" ? 80 : 62),
+        ...note(TUNING[string] + capo + fret, start, end, stepSec, strum === "down" ? 80 : 62),
         pos: { string, fret, transposed: 0 },
         strum,
       });

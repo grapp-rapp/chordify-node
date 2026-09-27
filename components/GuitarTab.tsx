@@ -1,9 +1,10 @@
 "use client";
 
-import { Copy, LayoutGrid, Text } from "lucide-react";
+import { Copy, LayoutGrid, ListMusic, Text } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { buildTabLines, GUITAR_STRING_NAMES } from "@/lib/music/arrange";
 import type { Arrangement, ChordEvent, GuitarNote } from "@/lib/types";
+import { ChordSheet } from "./ChordSheet";
 
 const CELL_W = 22;
 const ROW_H = 20;
@@ -124,7 +125,8 @@ export function GuitarTab({
   time: number;
   onSeek: (t: number) => void;
 }) {
-  const [mode, setMode] = useState<"interactive" | "text">("interactive");
+  // Easy levels open on the songbook-style chord sheet; exact notes open on the tab.
+  const [mode, setMode] = useState<"chords" | "interactive" | "text">(arr.style === "easy" ? "chords" : "interactive");
   const [copied, setCopied] = useState(false);
   const steps = arr.stepsPerBar;
 
@@ -145,16 +147,29 @@ export function GuitarTab({
     <div className="card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2 text-xs text-slate-400">
         <span>
-          Standard tuning (E A D G B e) · numbers are frets · each cell = 1/16 note
-          {arr.guitar.some((g) => g.pos.transposed) && <span className="text-fuchsia-300"> · pink = octave-shifted</span>}
+          {mode === "chords" ? (
+            "Chord sheet · one box per bar · 4 beats"
+          ) : (
+            <>
+              Standard tuning (E A D G B e) · numbers are frets{arr.capo ? ` (counted from the capo)` : ""} · each cell = 1/16 note
+              {arr.guitar.some((g) => g.pos.transposed) && <span className="text-fuchsia-300"> · pink = octave-shifted</span>}
+            </>
+          )}
         </span>
         <div className="flex items-center gap-1 rounded-lg border border-white/10 p-0.5">
+          <button
+            type="button"
+            onClick={() => setMode("chords")}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 ${mode === "chords" ? "bg-white/10 text-white" : "hover:text-slate-200"}`}
+          >
+            <ListMusic className="h-3.5 w-3.5" /> Chords
+          </button>
           <button
             type="button"
             onClick={() => setMode("interactive")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 ${mode === "interactive" ? "bg-white/10 text-white" : "hover:text-slate-200"}`}
           >
-            <LayoutGrid className="h-3.5 w-3.5" /> Interactive
+            <LayoutGrid className="h-3.5 w-3.5" /> Tab
           </button>
           <button
             type="button"
@@ -166,7 +181,9 @@ export function GuitarTab({
         </div>
       </div>
 
-      {mode === "interactive" ? (
+      {mode === "chords" ? (
+        <ChordSheet arr={arr} time={time} onSeek={onSeek} />
+      ) : mode === "interactive" ? (
         <div className="scroll-thin max-h-[560px] overflow-auto p-4">
           <div className="flex">
             {/* string labels */}

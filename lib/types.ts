@@ -48,6 +48,8 @@ export interface ChordEvent {
   quality: ChordQuality;
   name: string; // "Amin", "Gmaj", "G7", "Cmaj7"
   symbol: string; // "Am", "G", "G7", "Cmaj7"
+  shape?: string; // guitar fingering chosen for the arrangement's level, e.g. "xxx010"
+  shapeSymbol?: string; // name of the shape played (differs from symbol when a capo is used)
   startStep: number;
   endStep: number;
   start: number;
@@ -71,6 +73,8 @@ export type ArrangeStyle = "easy" | "full";
 export interface Arrangement {
   instrument: Instrument;
   style: ArrangeStyle;
+  level: 1 | 2 | 3; // easy-arrangement difficulty (ignored for "full")
+  capo: number; // guitar capo fret for easy levels (0 = none); tab frets are relative to it
   tempo: number;
   stepSec: number;
   stepsPerBar: number;

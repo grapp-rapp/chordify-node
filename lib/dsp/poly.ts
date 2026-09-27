@@ -176,7 +176,7 @@ export async function analyzePoly(
   onProgress("Estimating tempo", 0.94);
   const nFrames = Math.floor(x.length / HOP) + 1;
   const rhythm = rhythmEnvelopes(x, nFrames);
-  const tempo = estimateTempo(rhythm.full, sr / HOP);
+  const tempo = estimateTempo(rhythm.full, sr / HOP, rhythm.low);
 
   onProgress("Finishing", 1);
   return {

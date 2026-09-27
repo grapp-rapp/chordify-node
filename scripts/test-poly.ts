@@ -201,7 +201,7 @@ async function bandCase(check: (ok: boolean, msg: string) => void): Promise<numb
     if (!cond) fails++;
     check(cond, msg);
   };
-  const arr = arrange(res, "piano", bpm, "easy");
+  const arr = arrange(res, "piano", bpm, "easy", 2); // level 2 = plain triads
   const names = arr.chords.map((c) => c.name);
   ok(JSON.stringify(names) === JSON.stringify(progression.map((c) => c.name)), `chords ${names.join(" ")}`);
 
@@ -234,6 +234,20 @@ async function bandCase(check: (ok: boolean, msg: string) => void): Promise<numb
   );
   ok(g.guitar.length > 0 && g.guitar.every((n) => n.strum), `guitar strum pattern (16th positions): ${pattern.join(" ")}`);
   console.log(g.text.split("Tablature")[1].split("\n").slice(2, 10).join("\n"));
+
+  // Guitar levels: beginner = ≤3 strings, one chord per bar, 2 strums a bar; intermediate = a strum per beat.
+  const l1 = arrange(res, "guitar", bpm, "easy", 1);
+  const l2 = arrange(res, "guitar", bpm, "easy", 2);
+  const strumSteps = (a: typeof l1) => [...new Set(a.guitar.map((n) => n.startStep))];
+  const maxStrings = Math.max(...strumSteps(l1).map((st) => l1.guitar.filter((n) => n.startStep === st).length));
+  const shapes = [...new Set(l1.chords.map((c) => `${c.shapeSymbol}[${c.shape}]`))].join(" ");
+  ok(
+    maxStrings <= 3 && l1.chords.every((c) => c.startStep % 16 === 0) && strumSteps(l1).length === (l1.totalSteps / 16) * 2,
+    `beginner: ≤3 strings (${maxStrings}), 1 chord per bar, 2 strums a bar; capo ${l1.capo}, shapes ${shapes}`,
+  );
+  ok(strumSteps(l2).length === (l2.totalSteps / 16) * 4, `intermediate: a strum on every beat (${strumSteps(l2).length} strums)`);
+  const sounding = (a: typeof l1) => a.chords.map((c) => c.name).join(" ");
+  ok(sounding(l1) === sounding(l2), `capo keeps the real chords: ${sounding(l1)}`);
   return fails;
 }
 

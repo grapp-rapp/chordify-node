@@ -2,7 +2,7 @@
 
 import { AudioLines, Cpu, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { InstrumentToggle } from "@/components/InstrumentToggle";
+import type { GuitarLevel } from "@/components/LevelPicker";
 import { ModeToggle } from "@/components/ModeToggle";
 import { MicRecorder } from "@/components/MicRecorder";
 import { ProgressPanel } from "@/components/ProgressPanel";
@@ -10,12 +10,11 @@ import { ResultsView } from "@/components/ResultsView";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { decodeToMono, runAnalysis, UserFacingError, validateFile } from "@/lib/audio";
 import { arrange } from "@/lib/music/arrange";
-import type { AnalysisResult, ArrangeStyle, DetectMode, Instrument } from "@/lib/types";
+import type { AnalysisResult, DetectMode } from "@/lib/types";
 
 type Phase = "input" | "working" | "done";
 
 export default function Home() {
-  const [instrument, setInstrument] = useState<Instrument>("piano");
   const [mode, setMode] = useState<DetectMode>("poly");
   const lastBlob = useRef<Blob | null>(null);
   const [phase, setPhase] = useState<Phase>("input");
@@ -24,18 +23,18 @@ export default function Home() {
   const [source, setSource] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [tempo, setTempo] = useState<number | undefined>(undefined);
-  const [style, setStyle] = useState<ArrangeStyle>("easy");
+  const [level, setLevel] = useState<GuitarLevel>(1);
   const abortRef = useRef<AbortController | null>(null);
 
   const arrangement = useMemo(() => {
     if (!analysis) return null;
     try {
-      return arrange(analysis, instrument, tempo, style);
+      return level === "exact" ? arrange(analysis, "guitar", tempo, "full") : arrange(analysis, "guitar", tempo, "easy", level);
     } catch (e) {
       console.error(e);
       return null;
     }
-  }, [analysis, instrument, tempo, style]);
+  }, [analysis, tempo, level]);
 
   const transcribe = async (blob: Blob, label: string, detect: DetectMode = mode) => {
     lastBlob.current = blob;
@@ -104,19 +103,18 @@ export default function Home() {
           <div className="space-y-8">
             <section className="mx-auto max-w-2xl text-center">
               <h1 className="bg-gradient-to-br from-white to-slate-400 bg-clip-text text-3xl font-bold tracking-tight text-transparent sm:text-5xl">
-                Turn music into notes, chords &amp; tabs
+                Turn any song into easy guitar chords
               </h1>
               <p className="mt-3 text-slate-400 sm:text-lg">
-                Upload or record audio. ChordifyNode detects every note, the rhythm and the chords, then writes it out for piano or guitar.
+                Upload or record a song. ChordifyNode finds the chords and the beat, then writes it out for guitar at your level — from beginner to exact tabs.
               </p>
             </section>
 
             <section className="card space-y-3 p-4 sm:p-5">
               <p className="text-sm font-semibold text-slate-300">
                 <span className="mr-2 rounded-md bg-violet-500/20 px-1.5 py-0.5 text-xs text-violet-200">1</span>
-                Choose your instrument &amp; what to detect
+                What&apos;s in your song?
               </p>
-              <InstrumentToggle value={instrument} onChange={setInstrument} />
               <ModeToggle value={mode} onChange={setMode} />
             </section>
 
@@ -160,9 +158,9 @@ export default function Home() {
 
             <section className="grid gap-3 text-sm text-slate-400 sm:grid-cols-3">
               {[
-                ["Chords & several notes", "A neural note detector (Basic Pitch) finds every note sounding at once, from A0 to C8."],
-                ["Rhythm & harmony", "Onset detection, tempo estimation, 16th-note quantization and chord names from triads to 7ths."],
-                ["Whole songs", "Songs with drums, band or vocals become one easy piano or guitar part that follows the song's beat."],
+                ["Pick your level", "Beginner (tiny 1–3 finger chords), Intermediate (open chords), Advanced (the real rhythm) or exact notes."],
+                ["Capo made easy", "If a song's chords are hard, ChordifyNode tells you where to put a capo so you can use easy shapes."],
+                ["Any song", "Songs with drums, band or vocals become strummed chords that follow the song's own beat."],
               ].map(([t, d]) => (
                 <div key={t} className="card p-4">
                   <p className="mb-1 flex items-center gap-2 font-semibold text-slate-200">
@@ -188,9 +186,9 @@ export default function Home() {
             detectedTempo={analysis.tempo}
             mode={analysis.mode}
             onMode={(m) => lastBlob.current && void transcribe(lastBlob.current, source, m)}
-            onInstrument={setInstrument}
+            level={level}
+            onLevel={setLevel}
             onTempo={setTempo}
-            onStyle={setStyle}
             onReset={() => {
               setPhase("input");
               setAnalysis(null);

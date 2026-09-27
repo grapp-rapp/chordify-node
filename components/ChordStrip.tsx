@@ -77,7 +77,7 @@ export function ChordStrip({
     return <p className="text-sm text-slate-500">No clear chord progression detected.</p>;
   }
   // Unique chords in order of appearance, for the diagram legend.
-  const unique = [...new Map(chords.map((c) => [c.name, c])).values()];
+  const unique = [...new Map(chords.map((c) => [c.shapeSymbol ?? c.name, c])).values()];
   const current = chords.find((c) => time >= c.start && time < c.end);
 
   return (
@@ -90,14 +90,14 @@ export function ChordStrip({
               key={i}
               type="button"
               onClick={() => onSeek(c.start + 0.001)}
-              title={`${c.name} · bar ${Math.floor(c.startStep / 16) + 1}`}
+              title={`${c.name}${c.shapeSymbol && c.shapeSymbol !== c.symbol ? ` (play the ${c.shapeSymbol} shape with the capo)` : ""} · bar ${Math.floor(c.startStep / 16) + 1}`}
               className={`shrink-0 rounded-lg border px-2.5 py-1 text-sm font-semibold transition ${
                 active
                   ? "border-amber-300 bg-amber-400 text-black shadow-lg shadow-amber-500/20"
                   : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
               }`}
             >
-              {c.name}
+              {c.shapeSymbol ?? c.symbol}
             </button>
           );
         })}
@@ -106,14 +106,16 @@ export function ChordStrip({
         <div className="flex flex-wrap gap-2">
           {unique.map((c) => (
             <div
-              key={c.name}
+              key={c.shapeSymbol ?? c.name}
               className={`flex flex-col items-center rounded-xl border px-2 pt-1.5 pb-1 transition ${
-                current?.name === c.name ? "border-amber-300/70 bg-amber-400/10" : "border-white/10 bg-black/20"
+                current && (current.shapeSymbol ?? current.name) === (c.shapeSymbol ?? c.name)
+                  ? "border-amber-300/70 bg-amber-400/10"
+                  : "border-white/10 bg-black/20"
               }`}
             >
-              <span className="text-xs font-semibold text-slate-100">{c.symbol}</span>
-              <ChordDiagram shape={guitarChordShape(c.root, c.quality)} />
-              <span className="font-mono text-[10px] text-slate-500">{guitarChordShape(c.root, c.quality)}</span>
+              <span className="text-xs font-semibold text-slate-100">{c.shapeSymbol ?? c.symbol}</span>
+              <ChordDiagram shape={c.shape ?? guitarChordShape(c.root, c.quality)} />
+              <span className="font-mono text-[10px] text-slate-500">{c.shape ?? guitarChordShape(c.root, c.quality)}</span>
             </div>
           ))}
         </div>

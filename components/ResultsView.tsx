@@ -17,14 +17,11 @@ import {
 import { useState } from "react";
 import { usePlayer } from "@/hooks/usePlayer";
 import { exportMidi, exportPdf, exportText } from "@/lib/export";
-import type { Arrangement, ArrangeStyle, DetectMode, Instrument } from "@/lib/types";
+import type { Arrangement, DetectMode } from "@/lib/types";
 import { ModeToggle } from "./ModeToggle";
-import { StyleToggle } from "./StyleToggle";
 import { ChordStrip } from "./ChordStrip";
 import { GuitarTab } from "./GuitarTab";
-import { InstrumentToggle } from "./InstrumentToggle";
-import { PianoRoll } from "./PianoRoll";
-import { SheetMusic } from "./SheetMusic";
+import { LevelPicker, type GuitarLevel } from "./LevelPicker";
 
 function fmt(sec: number) {
   const m = Math.floor(sec / 60);
@@ -38,9 +35,9 @@ export function ResultsView({
   detectedTempo,
   mode,
   onMode,
-  onInstrument,
+  level,
+  onLevel,
   onTempo,
-  onStyle,
   onReset,
 }: {
   arr: Arrangement;
@@ -48,13 +45,12 @@ export function ResultsView({
   detectedTempo: number;
   mode: DetectMode;
   onMode: (m: DetectMode) => void;
-  onInstrument: (i: Instrument) => void;
+  level: GuitarLevel;
+  onLevel: (l: GuitarLevel) => void;
   onTempo: (bpm: number) => void;
-  onStyle: (s: ArrangeStyle) => void;
   onReset: () => void;
 }) {
   const player = usePlayer(arr);
-  const [pianoView, setPianoView] = useState<"roll" | "sheet">("roll");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [tempoDraft, setTempoDraft] = useState<string | null>(null);
 
@@ -64,7 +60,7 @@ export function ResultsView({
   };
 
   const stats = [
-    { label: "Notes", value: arr.notes.length },
+    { label: "Capo", value: arr.capo ? `Fret ${arr.capo}` : "None" },
     { label: "Key", value: arr.key },
     { label: "Bars", value: Math.ceil(arr.totalSteps / arr.stepsPerBar) },
     { label: "Chords", value: new Set(arr.chords.map((c) => c.name)).size },
@@ -80,12 +76,25 @@ export function ResultsView({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ModeToggle value={mode} onChange={(m) => m !== mode && onMode(m)} compact />
-          <InstrumentToggle value={arr.instrument} onChange={onInstrument} compact />
           <button type="button" onClick={onReset} className="btn-ghost">
             <RotateCcw className="h-4 w-4" /> New
           </button>
         </div>
       </div>
+
+      <div className="card p-3 sm:p-4">
+        <LevelPicker value={level} onChange={onLevel} />
+      </div>
+
+      {arr.capo > 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-cyan-400/30 bg-cyan-400/10 p-3 text-sm text-cyan-50">
+          <span className="rounded-lg bg-cyan-400 px-2.5 py-1 text-base font-bold text-black">Capo {arr.capo}</span>
+          <span>
+            Put a capo on <b>fret {arr.capo}</b>. Then play the easy chord shapes shown below and it matches the
+            recording.
+          </span>
+        </div>
+      )}
 
       {/* Transport + tempo + exports */}
       <div className="card flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -212,40 +221,7 @@ export function ResultsView({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <StyleToggle value={arr.style} instrument={arr.instrument} onChange={onStyle} />
-        <p className="text-sm text-slate-400">
-          {arr.style === "full"
-            ? "Every detected note, exactly as played."
-            : arr.instrument === "piano"
-              ? "Melody in the right hand, chords in the left on the song's beat (kick → bass notes)."
-              : "Chords strummed on the song's beat: ↓ on the beat, ↑ in between."}
-        </p>
-      </div>
-
-      {arr.instrument === "piano" ? (
-        <div className="space-y-3">
-          <div className="inline-flex rounded-xl border border-white/10 bg-black/20 p-1 text-sm">
-            {(["roll", "sheet"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setPianoView(v)}
-                className={`rounded-lg px-3 py-1.5 font-medium transition ${pianoView === v ? "bg-white/10 text-white" : "text-slate-400 hover:text-slate-200"}`}
-              >
-                {v === "roll" ? "Piano Roll" : "Sheet Music"}
-              </button>
-            ))}
-          </div>
-          {pianoView === "roll" ? (
-            <PianoRoll arr={arr} time={player.time} playing={player.playing} onSeek={player.seek} />
-          ) : (
-            <SheetMusic arr={arr} time={player.time} onSeek={player.seek} />
-          )}
-        </div>
-      ) : (
-        <GuitarTab arr={arr} time={player.time} onSeek={player.seek} />
-      )}
+      <GuitarTab key={`${arr.style}-${arr.level}`} arr={arr} time={player.time} onSeek={player.seek} />
     </div>
   );
 }

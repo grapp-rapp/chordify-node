@@ -15,25 +15,25 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: `${SITE_NAME} — Songs to Piano Notes, Chords & Guitar Tabs`,
+  title: `${SITE_NAME} — Songs to Easy Guitar Chords & Tabs`,
   description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
   keywords: [
     "ChordifyNode",
     "chordify node",
-    "song to piano notes",
-    "audio to sheet music",
+    "easy guitar chords",
+    "song to guitar chords",
     "mp3 to guitar tabs",
     "chord finder",
-    "music transcription",
-    "easy piano arrangement",
+    "capo calculator",
+    "beginner guitar songs",
   ],
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     url: SITE_URL,
     siteName: SITE_NAME,
-    title: `${SITE_NAME} — Songs to Piano Notes, Chords & Guitar Tabs`,
+    title: `${SITE_NAME} — Songs to Easy Guitar Chords & Tabs`,
     description: SITE_DESCRIPTION,
   },
   // Google Search Console ownership code — set GOOGLE_SITE_VERIFICATION in Vercel's
