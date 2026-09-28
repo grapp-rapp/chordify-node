@@ -228,13 +228,38 @@ async function bandCase(check: (ok: boolean, msg: string) => void): Promise<numb
   const [tune] = abcjs.parseOnly(arr.abc);
   ok(!(tune.warnings ?? []).length, "easy sheet music parses cleanly");
 
-  const g = arrange(res, "guitar", bpm, "easy");
-  const l1 = arrange(res, "guitar", bpm, "easy", 1);
-  const l2 = arrange(res, "guitar", bpm, "easy", 2);
+  // Chords part (default): beginner = ≤3 strings, one chord per bar, 2 strums a bar;
+  // intermediate = a strum on every beat; the capo only changes shapes, not the sounding chords.
+  const c1 = arrange(res, "guitar", bpm, "easy", 1, "chords");
+  const c2 = arrange(res, "guitar", bpm, "easy", 2, "chords");
+  const strumSteps = (a: typeof c1) => [...new Set(a.guitar.map((n) => n.startStep))];
+  const maxStrings = Math.max(...strumSteps(c1).map((st) => c1.guitar.filter((n) => n.startStep === st).length));
+  const shapes = [...new Set(c1.chords.map((c) => `${c.shapeSymbol}[${c.shape}]`))].join(" ");
+  ok(
+    maxStrings <= 3 && c1.chords.every((c) => c.startStep % 16 === 0) && strumSteps(c1).length === (c1.totalSteps / 16) * 2,
+    `chords easy: ≤3 strings (${maxStrings}), 1 chord per bar, 2 strums a bar; capo ${c1.capo}, shapes ${shapes}`,
+  );
+  ok(strumSteps(c2).length === (c2.totalSteps / 16) * 4, `chords medium: a strum on every beat (${strumSteps(c2).length} strums)`);
+  ok(c1.chords.map((c) => c.name).join() === c2.chords.map((c) => c.name).join(), "capo keeps the real chords");
+  const tuningC = [40, 45, 50, 55, 59, 64];
+  ok(c1.guitar.every((n) => tuningC[n.pos.string] + c1.capo + n.pos.fret === n.midi), "chord tab + capo matches sounding pitches");
+  ok(Math.abs(c1.audioRate - 1) < 0.02 && c1.audioOffset >= -2, `play-along alignment (rate ${c1.audioRate.toFixed(3)}, offset ${c1.audioOffset.toFixed(2)}s)`);
+
+  // Melody part: a single picked line.
+  const g = arrange(res, "guitar", bpm, "easy", 3, "melody");
+  const l1 = arrange(res, "guitar", bpm, "easy", 1, "melody");
+  const l2 = arrange(res, "guitar", bpm, "easy", 2, "melody");
   for (const a of [l1, l2, g]) {
     ok(a.guitar.length > 0 && a.guitar.every(n => !n.strum), "guitar level " + a.level + " plays picked notes");
-    ok(new Set(a.guitar.map(n => n.startStep)).size === a.guitar.length, "one note per attack");
-    ok(a.guitar.every((n, i) => !i || a.guitar[i - 1].endStep <= n.startStep), "melody notes do not overlap");
+    if (a.level < 3) {
+      ok(new Set(a.guitar.map(n => n.startStep)).size === a.guitar.length, "one note per attack");
+      ok(a.guitar.every((n, i) => !i || a.guitar[i - 1].endStep <= n.startStep), "melody notes do not overlap");
+    } else {
+      // Hard: chord notes only ever sit under a tune note that starts with them.
+      const tops = new Map<number, number>();
+      a.guitar.forEach((n) => tops.set(n.startStep, Math.max(tops.get(n.startStep) ?? 0, n.midi)));
+      ok(a.guitar.every((n) => n.midi <= (tops.get(n.startStep) ?? 0)), "hard: chord notes sit under the tune");
+    }
     const tuning = [40, 45, 50, 55, 59, 64];
     ok(a.guitar.every(n => tuning[n.pos.string] + n.pos.fret === n.midi + 12 * n.pos.transposed), "tab matches sounding pitches");
     ok(a.capo === 0 && !a.text.includes("D/U = strum"), "no strum instructions or capo in melody export");

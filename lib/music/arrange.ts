@@ -12,6 +12,7 @@ import type {
   Arrangement,
   ChordEvent,
   GuitarNote,
+  GuitarPart,
   GuitarPosition,
   Instrument,
   QNote,
@@ -31,10 +32,12 @@ import {
 import { MAX_SECONDS } from "../audio";
 import { buildTimeMap, type TimeMap } from "./beats";
 import {
+  chooseCapo,
   detectGroove,
   dropRareChords,
   extractMelody,
   guitarMelody,
+  guitarStrums,
   levelShape,
   onePerBar,
   pianoLeftHand,
@@ -604,7 +607,9 @@ function buildText(a: Omit<Arrangement, "text" | "midi">): string {
         ? "full transcription"
         : a.instrument === "piano"
           ? "easy arrangement (melody + chords on the song's rhythm)"
-          : `picked melody (difficulty level ${a.level})`
+          : a.part === "chords"
+            ? `strummed chords (level ${a.level})`
+            : `picked melody (level ${a.level})`
     }`,
     `Tempo: ${a.tempo} BPM   Time: 4/4   Key (estimated): ${a.key}${a.capo ? `   CAPO: fret ${a.capo} (chords below are the shapes you play)` : ""}`,
     `Notes: ${a.notes.length}   Length: ${a.duration.toFixed(1)}s`,
@@ -679,10 +684,13 @@ export function arrange(
   tempoOverride?: number,
   style: ArrangeStyle = "easy",
   level: Level = 3,
+  part: GuitarPart = "chords",
 ): Arrangement {
   const tempo = Math.min(240, Math.max(40, Math.round(tempoOverride ?? analysis.tempo)));
-  const stepSec = 60 / tempo / 4;
   const map = buildTimeMap(analysis, tempo);
+  // Lay the arrangement out at the song's measured beat length (not the rounded BPM) so it stays
+  // in sync with the original recording when played along; a manual tempo uses that tempo.
+  const stepSec = tempoOverride === undefined ? map.beatPeriod / 4 : 60 / tempo / 4;
   const notes = quantize(analysis, stepSec, map);
   const lastStep = notes.reduce((m, n) => Math.max(m, n.endStep), 0);
   const totalSteps = Math.max(STEPS_PER_BAR, Math.ceil(lastStep / STEPS_PER_BAR) * STEPS_PER_BAR);
@@ -702,7 +710,9 @@ export function arrange(
   let chords = style === "easy" && level < 3 ? simplifyChords(detected, stepSec, key) : detected;
   if (style === "easy") chords = dropRareChords(chords, stepSec);
   if (style === "easy" && level === 1) chords = onePerBar(chords, totalSteps, stepSec);
-  const capo = 0; // Picked melodies use standard tuning, with no chord-driven capo.
+  // Strummed chords at easy levels: a capo can turn hard chords into easy shapes.
+  // Picked melodies stay in standard tuning.
+  const capo = instrument === "guitar" && style === "easy" && part === "chords" ? chooseCapo(chords, level) : 0;
   if (instrument === "guitar") {
     chords = chords.map((c) => {
       const shapeRoot = (c.root - capo + 12) % 12;
@@ -733,7 +743,11 @@ export function arrange(
       bass = notationBass = pianoLeftHand(chords, groove, totalSteps, stepSec);
       outNotes = [...treble, ...bass].sort((a, b) => a.startStep - b.startStep || a.midi - b.midi);
     } else {
-      ({ guitar, dropped } = assignGuitar(guitarMelody(notes, stepSec, level), level === 1 ? 5 : level === 2 ? 9 : MAX_FRET));
+      if (part === "chords") {
+        guitar = guitarStrums(chords, groove, totalSteps, stepSec, level, capo);
+      } else {
+        ({ guitar, dropped } = assignGuitar(guitarMelody(notes, stepSec, level), level === 1 ? 5 : level === 2 ? 9 : MAX_FRET));
+      }
       outNotes = guitar;
     }
   }
@@ -753,6 +767,9 @@ export function arrange(
     style,
     level,
     capo,
+    part,
+    audioOffset: map.toTime(0),
+    audioRate: map.beatPeriod / (stepSec * 4),
     tempo,
     stepSec,
     stepsPerBar: STEPS_PER_BAR,

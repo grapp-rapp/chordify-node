@@ -128,8 +128,10 @@ export function GuitarTab({
   time: number;
   onSeek: (t: number) => void;
 }) {
-  // Every level opens on the actual picked notes.
-  const [mode, setMode] = useState<"chords" | "interactive" | "text">("interactive");
+  // Strummed chords open on the songbook chord sheet; melodies and exact notes on the tab.
+  const [mode, setMode] = useState<"chords" | "interactive" | "text">(
+    arr.style === "easy" && arr.part === "chords" ? "chords" : "interactive",
+  );
   const [copied, setCopied] = useState(false);
   const steps = arr.stepsPerBar;
 
@@ -165,14 +167,14 @@ export function GuitarTab({
             onClick={() => setMode("chords")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 ${mode === "chords" ? "bg-white/10 text-white" : "hover:text-slate-200"}`}
           >
-            <ListMusic className="h-3.5 w-3.5" /> Chord reference
+            <ListMusic className="h-3.5 w-3.5" /> Chord sheet
           </button>
           <button
             type="button"
             onClick={() => setMode("interactive")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 ${mode === "interactive" ? "bg-white/10 text-white" : "hover:text-slate-200"}`}
           >
-            <LayoutGrid className="h-3.5 w-3.5" /> Melody tab
+            <LayoutGrid className="h-3.5 w-3.5" /> Tab
           </button>
           <button
             type="button"
@@ -189,7 +191,11 @@ export function GuitarTab({
       ) : mode === "interactive" ? (
         <div className="scroll-thin max-h-[560px] overflow-auto p-4">
           <div className="mb-4 rounded-xl bg-cyan-400/5 px-3 py-2 text-sm text-cyan-100">
-            {arr.style === "easy" ? "Pick one string at a time. Follow the fret numbers from left to right." : "Play the detected notes from left to right."}
+            {arr.style === "easy" && arr.part === "chords"
+              ? "Strum all the numbers in a column together. Follow the columns from left to right."
+              : arr.style === "easy"
+                ? "Pick one string at a time. Follow the fret numbers from left to right."
+                : "Play the detected notes from left to right."}
             <span className="mt-1 block text-xs text-slate-400">0 = open string · top line = thinnest string · click a bar to jump there</span>
           </div>
           <div className="flex">

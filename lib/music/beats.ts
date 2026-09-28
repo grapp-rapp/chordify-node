@@ -14,6 +14,8 @@ export interface TimeMap {
   toStep(t: number): number;
   /** Fractional step → seconds on the original audio timeline. */
   toTime(step: number): number;
+  /** Average tracked beat length in seconds (the song's real tempo, not rounded). */
+  beatPeriod: number;
 }
 
 function trackBeats(env: Float32Array, hop: number, bpm: number): number[] {
@@ -160,8 +162,10 @@ export function buildTimeMap(analysis: AnalysisResult, bpm: number): TimeMap {
   const firstBeat = beatIndexOf(beats, firstNote, spacing);
   let bar0 = Math.floor((firstBeat + 0.25 - phase) / 4) * 4 + phase;
   if (bar0 > firstBeat + 0.25) bar0 -= 4;
+  const beatPeriod = beats.length > 1 ? (beats[beats.length - 1] - beats[0]) / (beats.length - 1) : spacing;
   return {
     toStep: (t) => (beatIndexOf(beats, t, spacing) - bar0) * 4,
     toTime: (step) => timeOfBeat(beats, step / 4 + bar0, spacing),
+    beatPeriod,
   };
 }

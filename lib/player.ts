@@ -113,6 +113,60 @@ export class MidiPlayer {
   playing = false;
   pausedAt = 0;
   onEnded?: () => void;
+  /** Practice speed (1 = normal). Samples keep their pitch; timing is stretched. */
+  private speed = 1;
+  private guitarVolume = 1;
+  /** Original recording played underneath ("play along"): song time = offset + t × rate. */
+  private backing: HTMLAudioElement | null = null;
+  private backingOffset = 0;
+  private backingRate = 1;
+  private backingOn = true;
+
+  setBacking(url: string | null, offset: number, rate: number) {
+    this.backing?.pause();
+    this.backing = null;
+    if (url) {
+      const el = new Audio(url);
+      el.preload = "auto";
+      el.preservesPitch = true; // slowing down must not lower the pitch
+      this.backing = el;
+    }
+    this.backingOffset = offset;
+    this.backingRate = rate;
+    if (this.playing) void this.play(this.currentTime());
+  }
+
+  setBackingOptions(on: boolean, volume: number) {
+    this.backingOn = on;
+    if (this.backing) this.backing.volume = Math.max(0, Math.min(1, volume));
+    if (!on) this.backing?.pause();
+    else if (this.playing) this.syncBacking(this.currentTime(), true);
+  }
+
+  setGuitarVolume(v: number) {
+    this.guitarVolume = v;
+    if (this.master) this.master.gain.value = 0.35 * v;
+  }
+
+  setSpeed(speed: number) {
+    const pos = this.currentTime();
+    this.speed = speed;
+    if (this.playing) void this.play(pos);
+  }
+
+  /** Keeps the original recording aligned with the arrangement's clock. */
+  private syncBacking(songTime: number, force = false) {
+    const el = this.backing;
+    if (!el || !this.backingOn) return;
+    const target = this.backingOffset + songTime * this.backingRate;
+    el.playbackRate = this.speed * this.backingRate;
+    if (target < 0 || target > (el.duration || Infinity)) {
+      el.pause();
+      return;
+    }
+    if (force || Math.abs(el.currentTime - target) > 0.12) el.currentTime = target;
+    if (el.paused) void el.play().catch(() => {});
+  }
 
   load(midiBytes: Uint8Array, instrument: Instrument) {
     const wasPlaying = this.playing;
@@ -135,7 +189,7 @@ export class MidiPlayer {
       comp.threshold.value = -12;
       comp.connect(this.ctx.destination);
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.35;
+      this.master.gain.value = 0.35 * this.guitarVolume;
       this.master.connect(comp);
     }
     return this.ctx;
@@ -169,7 +223,7 @@ export class MidiPlayer {
 
   currentTime(): number {
     if (!this.playing || !this.ctx) return this.pausedAt;
-    return Math.min(this.duration, this.startOffset + this.ctx.currentTime - this.startCtxTime);
+    return Math.min(this.duration, this.startOffset + (this.ctx.currentTime - this.startCtxTime) * this.speed);
   }
 
   async play(from = this.pausedAt) {
@@ -183,6 +237,7 @@ export class MidiPlayer {
     this.nextIndex = this.notes.findIndex((n) => n.time + n.duration > from);
     if (this.nextIndex < 0) this.nextIndex = this.notes.length;
     this.playing = true;
+    this.syncBacking(from, true);
     this.schedule();
     this.timer = window.setInterval(() => this.schedule(), TICK_MS);
   }
@@ -205,6 +260,8 @@ export class MidiPlayer {
 
   dispose() {
     this.stopVoices();
+    this.backing?.pause();
+    this.backing = null;
     void this.ctx?.close();
     this.ctx = null;
   }
@@ -222,21 +279,25 @@ export class MidiPlayer {
     });
     this.active.clear();
     this.playing = false;
+    this.backing?.pause();
   }
 
   private schedule() {
     const ctx = this.ctx!;
-    const songNow = this.startOffset + ctx.currentTime - this.startCtxTime;
-    while (this.nextIndex < this.notes.length && this.notes[this.nextIndex].time < songNow + LOOKAHEAD) {
+    const songNow = this.startOffset + (ctx.currentTime - this.startCtxTime) * this.speed;
+    if (songNow > this.startOffset + 0.3) this.syncBacking(songNow);
+    // Song time → AudioContext time at the current practice speed.
+    const at = (songTime: number) => this.startCtxTime + (songTime - this.startOffset) / this.speed;
+    while (this.nextIndex < this.notes.length && this.notes[this.nextIndex].time < songNow + LOOKAHEAD * this.speed) {
       const n = this.notes[this.nextIndex++];
       const offsetInNote = Math.max(0, songNow - n.time);
       if (offsetInNote >= n.duration) continue;
-      const when = this.startCtxTime + (n.time - this.startOffset) + offsetInNote;
+      const when = at(n.time + offsetInNote);
       const src = ctx.createBufferSource();
       src.buffer = this.voice(n.midi);
       const g = ctx.createGain();
       const level = 0.25 + 0.75 * n.velocity;
-      const endAt = when + (n.duration - offsetInNote);
+      const endAt = at(n.time + n.duration);
       const release = this.instrument === "guitar" ? 0.2 : 0.3;
       g.gain.setValueAtTime(level, when);
       g.gain.setValueAtTime(level, endAt);

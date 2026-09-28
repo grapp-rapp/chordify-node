@@ -67,6 +67,9 @@ export interface GuitarNote extends QNote {
   strum?: "down" | "up"; // set for strummed chords in easy arrangements
 }
 
+/** Easy-mode guitar part: strummed chords, or a picked single-note melody. */
+export type GuitarPart = "chords" | "melody";
+
 /** "easy": playable Simply-style arrangement of the whole song. "full": every detected note. */
 export type ArrangeStyle = "easy" | "full";
 
@@ -75,6 +78,10 @@ export interface Arrangement {
   style: ArrangeStyle;
   level: 1 | 2 | 3; // easy-arrangement difficulty (ignored for "full")
   capo: number; // guitar capo fret for easy levels (0 = none); tab frets are relative to it
+  part: GuitarPart; // what the guitarist plays in easy mode
+  /** Playing along with the original recording: song time = audioOffset + arrangement time × audioRate. */
+  audioOffset: number;
+  audioRate: number;
   tempo: number;
   stepSec: number;
   stepsPerBar: number;

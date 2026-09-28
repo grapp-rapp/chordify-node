@@ -1,7 +1,7 @@
 "use client";
 
 import { AudioLines, Cpu, ShieldCheck, TriangleAlert, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GuitarLevel } from "@/components/LevelPicker";
 import { ModeToggle } from "@/components/ModeToggle";
 import { MicRecorder } from "@/components/MicRecorder";
@@ -10,7 +10,7 @@ import { ResultsView } from "@/components/ResultsView";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { decodeToMono, runAnalysis, UserFacingError, validateFile } from "@/lib/audio";
 import { arrange } from "@/lib/music/arrange";
-import type { AnalysisResult, DetectMode } from "@/lib/types";
+import type { AnalysisResult, DetectMode, GuitarPart } from "@/lib/types";
 
 type Phase = "input" | "working" | "done";
 
@@ -24,17 +24,24 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [tempo, setTempo] = useState<number | undefined>(undefined);
   const [level, setLevel] = useState<GuitarLevel>(1);
+  // Every level plays the song's own notes (strummed accompaniment is kept in the engine only).
+  const part: GuitarPart = "melody";
+  /** Object URL of the original recording, played underneath the guitar part. */
+  const [songUrl, setSongUrl] = useState<string | null>(null);
+  useEffect(() => () => void (songUrl && URL.revokeObjectURL(songUrl)), [songUrl]);
   const abortRef = useRef<AbortController | null>(null);
 
   const arrangement = useMemo(() => {
     if (!analysis) return null;
     try {
-      return level === "exact" ? arrange(analysis, "guitar", tempo, "full") : arrange(analysis, "guitar", tempo, "easy", level);
+      return level === "exact"
+        ? arrange(analysis, "guitar", tempo, "full")
+        : arrange(analysis, "guitar", tempo, "easy", level, part);
     } catch (e) {
       console.error(e);
       return null;
     }
-  }, [analysis, tempo, level]);
+  }, [analysis, tempo, level, part]);
 
   const transcribe = async (blob: Blob, label: string, detect: DetectMode = mode) => {
     lastBlob.current = blob;
@@ -56,6 +63,7 @@ export default function Home() {
         controller.signal,
       );
       setAnalysis(result);
+      setSongUrl(URL.createObjectURL(blob));
       setTempo(undefined);
       setPhase("done");
     } catch (e) {
@@ -103,10 +111,10 @@ export default function Home() {
           <div className="space-y-8">
             <section className="mx-auto max-w-2xl text-center">
               <h1 className="bg-gradient-to-br from-white to-slate-400 bg-clip-text text-3xl font-bold tracking-tight text-transparent sm:text-5xl">
-                Turn your song into a guitar melody
+                Play any song on guitar
               </h1>
               <p className="mt-3 text-slate-400 sm:text-lg">
-                Upload or record a song. ChordifyNode finds the notes and turns them into guitar tabs at your level — one note at a time.
+                Upload or record a song. ChordifyNode writes out the song&apos;s own notes for guitar — simplified to your level — and lets you play along with the real recording.
               </p>
             </section>
 
@@ -158,9 +166,9 @@ export default function Home() {
 
             <section className="grid gap-3 text-sm text-slate-400 sm:grid-cols-3">
               {[
-                ["Pick your level", "Easy for fewer notes, Medium for more detail, Hard for the full extracted melody, or Exact for all detected notes."],
-                ["Follow the melody", "Read clear fret numbers, pick one string at a time, and hear your part as you practise."],
-                ["Any song", "Extract a melody from songs with vocals or a band. Clear recordings give the best results."],
+                ["Your level", "Easy keeps the tune with fewer notes, Medium is the full tune, Hard adds the song's chord notes, Exact is every note."],
+                ["Play along", "Your part scrolls past a playhead while the original song plays underneath. Slow it down to 60% to practise."],
+                ["Any song", "Songs with vocals, drums or a full band work. Clear recordings give the best results."],
               ].map(([t, d]) => (
                 <div key={t} className="card p-4">
                   <p className="mb-1 flex items-center gap-2 font-semibold text-slate-200">
@@ -188,6 +196,7 @@ export default function Home() {
             onMode={(m) => lastBlob.current && void transcribe(lastBlob.current, source, m)}
             level={level}
             onLevel={setLevel}
+            songUrl={songUrl}
             onTempo={setTempo}
             onReset={() => {
               setPhase("input");

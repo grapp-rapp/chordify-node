@@ -397,27 +397,114 @@ export function guitarStrums(
   return out;
 }
 
-/** A picked melody, with fewer attacks at lower levels. Never invent chord strums. */
+/**
+ * The song's tune for guitar, simplified by level while keeping what makes it recognisable —
+ * its pitch changes:
+ *  1 = Easy: repeated notes merged into one, 8th-note grid, frets 0–5.
+ *  2 = Medium: the full tune (quick same-note repeats merged), frets 0–9.
+ *  3 = Hard: the full tune plus the song's own chord notes sounding under it (up to two),
+ *     so real chords appear where the song has them.
+ */
 export function guitarMelody(notes: QNote[], stepSec: number, level: Level): QNote[] {
   // Lift low-register recordings for the shared melody extractor, preserving pitch classes.
-  const source = notes.some(n => n.midi >= 55 && n.midi <= 96 && n.confidence >= 0.2)
-    ? notes : notes.map(n => ({ ...n, midi: n.midi < 55 ? n.midi + 24 : n.midi }));
-  const melody = extractMelody(source, stepSec);
-  const spacing = level === 1 ? 4 : level === 2 ? 2 : 1;
-  const selected: QNote[] = [];
-  for (const n of melody) {
-    const prev = selected[selected.length - 1];
-    if (!prev || n.startStep - prev.startStep >= spacing) selected.push({ ...n });
+  const source = notes.some((n) => n.midi >= 55 && n.midi <= 96 && n.confidence >= 0.2)
+    ? notes
+    : notes.map((n) => ({ ...n, midi: n.midi < 55 ? n.midi + 24 : n.midi }));
+  let line = extractMelody(source, stepSec).map((n) => ({ ...n }));
+
+  if (level === 1) {
+    // 8th-note grid: snap starts; when two notes land on the same 8th, keep the one that was
+    // played closest to it (a passing 16th loses to the note on the beat).
+    const snapped: (QNote & { off: number })[] = [];
+    for (const n of line) {
+      const s = Math.round(n.startStep / 2) * 2;
+      const e = Math.max(s + 2, Math.round(n.endStep / 2) * 2);
+      const off = Math.abs(n.startStep - s);
+      const prev = snapped[snapped.length - 1];
+      if (prev && prev.startStep === s) {
+        if (off < prev.off || (off === prev.off && e - s > prev.endStep - prev.startStep)) {
+          snapped[snapped.length - 1] = { ...n, startStep: s, endStep: e, off };
+        }
+        continue;
+      }
+      if (prev && prev.endStep > s) prev.endStep = s;
+      snapped.push({ ...n, startStep: s, endStep: e, off });
+    }
+    line = snapped.map(({ off, ...n }) => (void off, n));
   }
-  // A single octave offset keeps the contour intact whenever the whole line fits.
-  const ceiling = level === 1 ? 69 : level === 2 ? 73 : 83;
-  const peak = selected.reduce((max, n) => Math.max(max, n.midi), 40);
-  const shift = Math.max(0, Math.ceil((peak - ceiling) / 12)) * 12;
-  return selected.map((n, i) => {
-    let midi = n.midi - shift;
+
+  // Merge repeated notes of the same pitch: Easy merges every repeat (up to a beat's gap),
+  // Medium only quick ones, Hard keeps every attack.
+  if (level < 3) {
+    const maxGap = level === 1 ? 4 : 1;
+    const maxLen = level === 1 ? 16 : 4;
+    const merged: QNote[] = [];
+    for (const n of line) {
+      const prev = merged[merged.length - 1];
+      if (prev && prev.midi === n.midi && n.startStep - prev.endStep <= maxGap && n.endStep - prev.startStep <= maxLen) {
+        prev.endStep = n.endStep;
+      } else merged.push(n);
+    }
+    line = merged;
+  }
+
+  // One octave shift for the whole line (so the contour stays intact), chosen from the tune's
+  // typical range rather than a single stray high note.
+  const ceiling = level === 1 ? 69 : level === 2 ? 76 : 83;
+  const sorted = line.map((n) => n.midi).sort((x, y) => x - y);
+  const typicalTop = sorted[Math.floor(sorted.length * 0.9)] ?? 60;
+  const shift = Math.max(0, Math.ceil((typicalTop - ceiling) / 12)) * 12;
+  const fit = (m: number) => {
+    let midi = m - shift;
     while (midi < 40) midi += 12;
     while (midi > ceiling) midi -= 12;
-    const endStep = Math.min(n.endStep, selected[i + 1]?.startStep ?? n.endStep);
+    return midi;
+  };
+
+  const out: QNote[] = line.map((n, i) => {
+    const midi = fit(n.midi);
+    const endStep = Math.max(n.startStep + 1, Math.min(n.endStep, line[i + 1]?.startStep ?? n.endStep));
     return { ...n, midi, name: midiToName(midi), endStep, start: n.startStep * stepSec, end: endStep * stepSec };
   });
+
+  if (level === 3) {
+    // The song's own chord notes under the tune: notes struck with a melody note, 3–12
+    // semitones below it (not the bass), at most two.
+    const harmony: QNote[] = [];
+    // Pitches the tune itself plays nearby aren't harmony (they're the tune's own neighbours).
+    const tuneNear = (step: number, midi: number) =>
+      line.some((t) => Math.abs(t.startStep - step) <= 3 && t.midi === midi);
+    for (const m of line) {
+      const under = notes
+        .filter(
+          (h) =>
+            Math.abs(h.startStep - m.startStep) <= 1 &&
+            h.midi >= 48 &&
+            m.midi - h.midi >= 3 &&
+            m.midi - h.midi <= 12 &&
+            h.midi % 12 !== m.midi % 12 &&
+            !tuneNear(m.startStep, h.midi),
+        )
+        .sort((x, y) => y.velocity - x.velocity)
+        .filter((h, i, arr) => arr.findIndex((o) => o.midi % 12 === h.midi % 12) === i)
+        .slice(0, 2);
+      for (const h of under) {
+        const midi = fit(h.midi) >= fit(m.midi) ? fit(h.midi) - 12 : fit(h.midi);
+        if (midi < 40) continue;
+        const endStep = Math.max(m.startStep + 1, Math.min(h.endStep, m.endStep + 4));
+        harmony.push({
+          ...h,
+          midi,
+          name: midiToName(midi),
+          startStep: m.startStep,
+          endStep,
+          start: m.startStep * stepSec,
+          end: endStep * stepSec,
+        });
+      }
+    }
+    out.push(...harmony);
+    out.sort((a, b) => a.startStep - b.startStep || b.midi - a.midi);
+  }
+  return out;
 }

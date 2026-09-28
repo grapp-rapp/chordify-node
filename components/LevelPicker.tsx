@@ -2,14 +2,46 @@
 
 export type GuitarLevel = 1 | 2 | 3 | "exact";
 
-const OPTIONS: { value: GuitarLevel; stars: string; label: string; hint: string }[] = [
-  { value: 1, stars: "⭐", label: "Easy", hint: "One note at a time · fewer notes · frets 0–5" },
-  { value: 2, stars: "⭐⭐", label: "Medium", hint: "More melody notes · eighth-note detail · frets 0–9" },
-  { value: 3, stars: "⭐⭐⭐", label: "Hard", hint: "Full extracted melody · quicker changes · wider fret range" },
-  { value: "exact", stars: "🎯", label: "Exact notes", hint: "Every note that was detected — for learning a riff note by note" },
+const OPTIONS: { value: GuitarLevel; stars: string; label: string; chords: string; melody: string }[] = [
+  {
+    value: 1,
+    stars: "⭐",
+    label: "Easy",
+    chords: "1 chord per bar · tiny 1–3 finger chords (with a capo if needed) · 2 strums a bar",
+    melody: "The tune with repeated notes merged · one note at a time · frets 0–5",
+  },
+  {
+    value: 2,
+    stars: "⭐⭐",
+    label: "Medium",
+    chords: "Normal open chords, no barre chords · a strum on every beat",
+    melody: "The full tune, note for note · frets 0–9",
+  },
+  {
+    value: 3,
+    stars: "⭐⭐⭐",
+    label: "Hard",
+    chords: "All the chords (7ths, barre chords) in the song's own rhythm ↓↑",
+    melody: "The full tune plus the song's own chord notes underneath",
+  },
+  {
+    value: "exact",
+    stars: "🎯",
+    label: "Exact notes",
+    chords: "Every note that was detected — for learning a riff note by note",
+    melody: "Every note that was detected — for learning a riff note by note",
+  },
 ];
 
-export function LevelPicker({ value, onChange }: { value: GuitarLevel; onChange: (l: GuitarLevel) => void }) {
+export function LevelPicker({
+  value,
+  onChange,
+  part = "chords",
+}: {
+  value: GuitarLevel;
+  onChange: (l: GuitarLevel) => void;
+  part?: "chords" | "melody";
+}) {
   const active = OPTIONS.find((o) => o.value === value) ?? OPTIONS[0];
   return (
     <div className="space-y-2">
@@ -22,7 +54,7 @@ export function LevelPicker({ value, onChange }: { value: GuitarLevel; onChange:
               type="button"
               role="radio"
               aria-checked={on}
-              title={o.hint}
+              title={o[part]}
               onClick={() => onChange(o.value)}
               className={`flex flex-col items-center rounded-xl border px-3 py-2.5 transition ${
                 on
@@ -36,7 +68,7 @@ export function LevelPicker({ value, onChange }: { value: GuitarLevel; onChange:
           );
         })}
       </div>
-      <p className="text-center text-sm text-slate-400">{active.hint}</p>
+      <p className="text-center text-sm text-slate-400">{active[part]}</p>
     </div>
   );
 }

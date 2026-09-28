@@ -5,6 +5,8 @@ import {
   Download,
   FileText,
   FileType2,
+  Guitar,
+  Headphones,
   Loader2,
   Minus,
   Music2,
@@ -22,6 +24,9 @@ import { ModeToggle } from "./ModeToggle";
 import { ChordStrip } from "./ChordStrip";
 import { GuitarTab } from "./GuitarTab";
 import { LevelPicker, type GuitarLevel } from "./LevelPicker";
+import { TabHighway } from "./TabHighway";
+
+const SPEEDS = [0.6, 0.8, 1, 1.2];
 
 function fmt(sec: number) {
   const m = Math.floor(sec / 60);
@@ -37,6 +42,7 @@ export function ResultsView({
   onMode,
   level,
   onLevel,
+  songUrl,
   onTempo,
   onReset,
 }: {
@@ -47,10 +53,11 @@ export function ResultsView({
   onMode: (m: DetectMode) => void;
   level: GuitarLevel;
   onLevel: (l: GuitarLevel) => void;
+  songUrl: string | null;
   onTempo: (bpm: number) => void;
   onReset: () => void;
 }) {
-  const player = usePlayer(arr);
+  const player = usePlayer(arr, songUrl);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [tempoDraft, setTempoDraft] = useState<string | null>(null);
 
@@ -60,7 +67,9 @@ export function ResultsView({
   };
 
   const stats = [
-    { label: "Notes", value: arr.guitar.length },
+    arr.capo > 0 || (arr.style === "easy" && arr.part === "chords")
+      ? { label: "Capo", value: arr.capo ? `Fret ${arr.capo}` : "None" }
+      : { label: "Notes", value: arr.guitar.length },
     { label: "Key", value: arr.key },
     { label: "Bars", value: Math.ceil(arr.totalSteps / arr.stepsPerBar) },
     { label: "Chords", value: new Set(arr.chords.map((c) => c.name)).size },
@@ -83,7 +92,7 @@ export function ResultsView({
       </div>
 
       <div className="card p-3 sm:p-4">
-        <LevelPicker value={level} onChange={onLevel} />
+        <LevelPicker value={level} onChange={onLevel} part="melody" />
       </div>
 
       {arr.capo > 0 && (
@@ -194,6 +203,68 @@ export function ResultsView({
         </div>
       </div>
 
+      {/* Practice controls: speed + play along with the original recording */}
+      <div className="card flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 text-sm">
+        <div className="flex items-center gap-2" role="radiogroup" aria-label="Practice speed">
+          <span className="text-slate-400">Speed</span>
+          <div className="flex rounded-lg border border-white/10 bg-black/30 p-0.5">
+            {SPEEDS.map((sp) => (
+              <button
+                key={sp}
+                type="button"
+                role="radio"
+                aria-checked={player.speed === sp}
+                onClick={() => player.setSpeed(sp)}
+                className={`rounded-md px-2.5 py-1 font-mono text-xs font-semibold ${
+                  player.speed === sp ? "bg-white text-black" : "text-slate-300 hover:bg-white/10"
+                }`}
+              >
+                {Math.round(sp * 100)}%
+              </button>
+            ))}
+          </div>
+        </div>
+        {player.hasSong && (
+          <div className="flex items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-2 text-slate-200">
+              <input
+                type="checkbox"
+                checked={player.withSong}
+                onChange={(e) => player.setWithSong(e.target.checked)}
+                className="h-4 w-4 accent-cyan-400"
+              />
+              <Headphones className="h-4 w-4 text-cyan-300" /> Play with the original song
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={player.songVolume}
+              disabled={!player.withSong}
+              onChange={(e) => player.setSongVolume(Number(e.target.value))}
+              className="w-24 accent-cyan-400 disabled:opacity-40"
+              aria-label="Original song volume"
+            />
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-slate-200">
+          <Guitar className="h-4 w-4 text-violet-300" /> Guitar
+          <input
+            type="range"
+            min={0}
+            max={1.5}
+            step={0.05}
+            value={player.guitarVolume}
+            onChange={(e) => player.setGuitarVolume(Number(e.target.value))}
+            className="w-24 accent-violet-400"
+            aria-label="Guitar volume"
+          />
+        </div>
+      </div>
+
+      <TabHighway arr={arr} time={player.time} onSeek={player.seek} />
+
       {arr.warnings.length > 0 && (
         <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
           {arr.warnings.map((w) => (
@@ -204,12 +275,12 @@ export function ResultsView({
         </div>
       )}
 
-      <GuitarTab key={`${arr.style}-${arr.level}`} arr={arr} time={player.time} onSeek={player.seek} />
+      <GuitarTab key={`${arr.style}-${arr.level}-${arr.part}`} arr={arr} time={player.time} onSeek={player.seek} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
         <div className="card min-w-0 p-4">
           <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <Music2 className="h-4 w-4 text-amber-300" /> Chord reference · optional accompaniment
+            <Music2 className="h-4 w-4 text-amber-300" /> Chords
           </p>
           <ChordStrip chords={arr.chords} instrument={arr.instrument} time={player.time} onSeek={player.seek} />
         </div>
